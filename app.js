@@ -77,6 +77,8 @@
     },
   };
   const tokens = () => store.get("giftable.tokens", {});
+  // Passwords ignore capital letters and extra spaces (phones love to capitalize).
+  const normPassword = (s) => String(s || "").trim().toLowerCase();
   const claimKeys = () => store.get("giftable.claims", {});
 
   function uid() {
@@ -183,6 +185,8 @@
     saveProfile: (token, colors, sizes) => rpc("giftable_save_profile", { p_token: token, p_colors: colors, p_sizes: sizes }),
     claim: (itemId, name) => rpc("giftable_claim", { p_item_id: itemId, p_name: name }),
     unclaim: (itemId, key) => rpc("giftable_unclaim", { p_item_id: itemId, p_key: key }),
+    login: (slug, pin) => rpc("giftable_login", { p_slug: slug, p_pin: normPassword(pin) }),
+    setPin: (token, pin) => rpc("giftable_set_pin", { p_token: token, p_pin: normPassword(pin) }),
   };
 
   const demo = {
@@ -259,6 +263,18 @@
       this.save(d);
       return d.claims.length < before;
     },
+    async login(slug, pin) {
+      const p = this.db().people.find((x) => x.slug === slug);
+      if (!p || (p.pin || p.slug) !== normPassword(pin)) return { ok: false, error: "Wrong password. Try again. (Demo password is the name)" };
+      return { ok: true, token: p.token };
+    },
+    async setPin(token, pin) {
+      pin = normPassword(pin);
+      if (pin.length < 4) throw new Error("Password needs at least 4 characters");
+      const d = this.db();
+      this.person(d, token).pin = pin;
+      this.save(d);
+    },
   };
 
   const api = DEMO ? demo : remote;
@@ -287,6 +303,10 @@
       .filter((i) => i.person_id === p.id)
       .sort((a, b) => (PRIORITY_RANK[a.priority] ?? 1) - (PRIORITY_RANK[b.priority] ?? 1) || String(a.created_at).localeCompare(String(b.created_at)));
   const isMine = (p) => Boolean(tokens()[p.slug]);
+  const listNames = () => {
+    const n = state.people.map((p) => p.name);
+    return n.length > 1 ? `${n.slice(0, -1).join(", ")} and ${n[n.length - 1]}` : n.join("");
+  };
   const avatarColor = (p) => AVATAR_COLORS[(state.people.indexOf(p) + AVATAR_COLORS.length) % AVATAR_COLORS.length];
 
   // ---------------------------------------------------------------------------
@@ -359,9 +379,9 @@
         <h1>Giftable</h1>
         <p>Our family's Christmas wish lists. Pick a person to see what they'd love, and claim a gift so nobody doubles up.</p>
       </section>
-      ${mine.length ? `<div class="share-row" style="margin:0 0 20px">${mine
-        .map((p) => `<a class="btn primary" href="#/${esc(p.slug)}/edit/${esc(tokens()[p.slug])}">✏️ Edit my list${mine.length > 1 ? ` (${esc(p.name)})` : ""}</a>`)
-        .join("")}</div>` : ""}
+      <div class="share-row" style="margin:0 0 20px">${mine.length
+        ? mine.map((p) => `<a class="btn primary" href="#/${esc(p.slug)}/edit">✏️ Edit my list${mine.length > 1 ? ` (${esc(p.name)})` : ""}</a>`).join("")
+        : `<button class="btn primary" data-action="login">🔑 Log in to edit your list</button>`}</div>
       <div class="people">${cards}</div>
       <div class="share-row">
         <button class="btn" data-action="share-family">Share Giftable with family</button>
@@ -369,7 +389,7 @@
       <section class="howto">
         <h3>How it works</h3>
         <ol>
-          <li>Each person fills in their own list using their private edit link.</li>
+          <li>${esc(listNames())} each tap <strong>Log in</strong> with their name and password to fill in their own list.</li>
           <li>Everyone else opens this page, picks a person, and taps <strong>I'll get this</strong> on a gift.</li>
           <li>Other givers see it's taken. The person whose list it is never sees what's been claimed.</li>
           <li>Tip: use your browser's <strong>Share → Add to Home Screen</strong> to keep Giftable like an app.</li>
@@ -465,7 +485,7 @@
         <div class="sub">${all.length} gift idea${all.length === 1 ? "" : "s"}${own ? "" : ` · ${open} still available`}</div></div>
       </div>
       ${own ? `<div class="private">This is <strong>your</strong> list, so claims are hidden to keep the surprise.
-        <div style="margin-top:10px"><a class="btn small primary" href="#/${esc(p.slug)}/edit/${esc(tokens()[p.slug])}">✏️ Edit my list</a></div></div>` : ""}
+        <div style="margin-top:10px"><a class="btn small primary" href="#/${esc(p.slug)}/edit">✏️ Edit my list</a></div></div>` : ""}
       ${profileBlock(p)}
       <div class="toolbar">
         ${own ? "" : `<label class="toggle"><input type="checkbox" data-action="toggle-hide" ${hideClaimed ? "checked" : ""}> Hide claimed gifts</label>`}
@@ -482,10 +502,12 @@
   // ---------------------------------------------------------------------------
   const verified = {};
   async function renderEdit(p, token, my) {
-    if (!token) {
-      app.innerHTML = `<div class="wrap">${topbar(true)}<div class="empty">To edit ${esc(p.name)}'s list, open the private edit link you were sent.</div></div>`;
-      return;
-    }
+    const needLogin = (msg) => {
+      app.innerHTML = `<div class="wrap">${topbar(true)}<div class="empty"><p>${msg}</p>
+        <button class="btn primary" data-action="login" data-slug="${esc(p.slug)}">🔑 Log in as ${esc(p.name)}</button>
+        <p style="margin-top:14px"><a href="#/${esc(p.slug)}">Or view ${esc(p.name)}'s list</a></p></div></div>`;
+    };
+    if (!token) return needLogin(`Log in to edit ${esc(p.name)}'s list.`);
     if (!verified[p.slug + token]) {
       let ok = false;
       try {
@@ -497,13 +519,19 @@
       }
       if (my !== rendering) return;
       if (!ok) {
-        app.innerHTML = `<div class="wrap">${topbar(true)}<div class="empty">This edit link doesn't work. Ask for a new one, or <a href="#/${esc(p.slug)}">view ${esc(p.name)}'s list</a>.</div></div>`;
-        return;
+        const t = tokens();
+        if (t[p.slug] === token) {
+          delete t[p.slug];
+          store.set("giftable.tokens", t);
+        }
+        return needLogin("You've been logged out. Please log in again.");
       }
       verified[p.slug + token] = true;
       const t = tokens();
       t[p.slug] = token;
       store.set("giftable.tokens", t);
+      // Keep the secret out of the address bar once it's saved.
+      if (location.hash !== `#/${p.slug}/edit`) history.replaceState(null, "", `#/${p.slug}/edit`);
     }
 
     const items = itemsFor(p);
@@ -514,11 +542,12 @@
         <div class="avatar" style="background:${avatarColor(p)}">${esc(p.name[0] || "?")}</div>
         <div><h1>Hi ${esc(p.name)}!</h1><div class="sub">Add what you'd love this Christmas.</div></div>
       </div>
-      <div class="private">🔒 <strong>This is your private edit link.</strong> Keep it to yourself, and add it to your home screen so you can come back.
-        To share your list, send the family link instead. You'll never see who claimed what.
+      <div class="private">🔒 You're logged in as <strong>${esc(p.name)}</strong>. Only you can change your list, and you'll never see who claimed what.
         <div class="share-row" style="justify-content:flex-start;margin-top:10px">
           <button class="btn small" data-action="share-person" data-slug="${esc(p.slug)}">Share my list</button>
           <a class="btn small ghost" href="#/${esc(p.slug)}">Preview as a giver</a>
+          <button class="btn small ghost" data-action="change-pin">Change password</button>
+          <button class="btn small ghost" data-action="logout">Log out</button>
         </div>
       </div>
       <section class="profile">
@@ -695,6 +724,81 @@
     });
   }
 
+  function loginForm(presetSlug) {
+    const opts = state.people
+      .map((p) => `<option value="${esc(p.slug)}" ${p.slug === presetSlug ? "selected" : ""}>${esc(p.name)}</option>`)
+      .join("");
+    openDialog(
+      `<h2>Log in</h2>
+      <div class="field"><label for="f-who">Who are you?</label>
+        <select id="f-who" name="who" ${presetSlug ? "" : "autofocus"}>${presetSlug ? "" : `<option value="">Choose your name</option>`}${opts}</select></div>
+      <div class="field"><label for="f-pw">Password</label>
+        <input id="f-pw" name="pw" type="password" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="60" ${presetSlug ? "autofocus" : ""}>
+        <span class="hint">Forgot it? Ask a parent to reset it.</span></div>
+      <div class="dialog-actions">
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button type="submit" class="btn primary">Log in</button>
+      </div>`,
+      async (f) => {
+        const fd = new FormData(f);
+        const slug = String(fd.get("who") || "");
+        const pw = String(fd.get("pw") || "");
+        if (!slug) {
+          toast("Choose your name");
+          return false;
+        }
+        if (!pw.trim()) {
+          toast("Enter your password");
+          return false;
+        }
+        const res = await api.login(slug, pw);
+        if (!res || !res.ok) {
+          $("#f-pw", f).value = "";
+          toast((res && res.error) || "Wrong password. Try again.");
+          return false;
+        }
+        const t = tokens();
+        t[slug] = res.token;
+        store.set("giftable.tokens", t);
+        verified[slug + res.token] = true;
+        const target = `#/${slug}/edit`;
+        if (location.hash === target) render();
+        else location.hash = target;
+        const p = personBySlug(slug);
+        toast(`Welcome, ${p ? p.name : ""}!`);
+      }
+    );
+  }
+
+  function passwordForm(token) {
+    openDialog(
+      `<h2>Change your password</h2>
+      <div class="field"><label for="f-new">New password</label>
+        <input id="f-new" name="pw" type="password" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="60" autofocus>
+        <span class="hint">At least 4 characters. Capital letters don't matter.</span></div>
+      <div class="field"><label for="f-again">Type it again</label>
+        <input id="f-again" name="again" type="password" autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="60"></div>
+      <div class="dialog-actions">
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button type="submit" class="btn primary">Save password</button>
+      </div>`,
+      async (f) => {
+        const fd = new FormData(f);
+        const pw = normPassword(fd.get("pw"));
+        if (pw.length < 4) {
+          toast("Use at least 4 characters");
+          return false;
+        }
+        if (pw !== normPassword(fd.get("again"))) {
+          toast("Those don't match");
+          return false;
+        }
+        await api.setPin(token, pw);
+        toast("Password changed");
+      }
+    );
+  }
+
   function confirmDelete(item, token) {
     openDialog(
       `<h2>Delete this gift?</h2><p>“${esc(item.name)}” will be removed from your list.</p>
@@ -736,6 +840,15 @@
     if (action === "edit-item" && p && item) return itemForm(p, r.token, item);
     if (action === "delete-item" && p && item) return confirmDelete(item, r.token);
     if (action === "edit-profile" && p) return profileForm(p, r.token);
+    if (action === "login") return loginForm(el.dataset.slug || (p && p.slug) || "");
+    if (action === "change-pin" && p) return passwordForm(r.token);
+    if (action === "logout" && p) {
+      const t = tokens();
+      delete t[p.slug];
+      store.set("giftable.tokens", t);
+      location.hash = "#/";
+      return toast("Logged out");
+    }
 
     if (action === "claim" && item) {
       const name = store.get("giftable.giver", "") || (await askName());

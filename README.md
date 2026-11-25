@@ -2,7 +2,7 @@
 
 Family Christmas wish lists for Jack, Jillian, Lila and Etta.
 
-- Each kid fills in their own list from a **private edit link**.
+- Each kid logs in with their name and a password to fill in their own list.
 - Parents, grandparents and anyone else open the **family link**, pick a person,
   and tap **I'll get this** so nobody buys the same gift twice.
 - The kid never sees what's been claimed on their own list.
@@ -45,39 +45,42 @@ but lists are saved only in that one browser.
    pick `main` and `/ (root)`, and save.
 4. After a minute the site is live at `https://YOUR-USERNAME.github.io/giftable/`.
 
-### 3. Send the links
+### 3. Passwords and sharing
 
-Get each kid's private edit token by running this in the Supabase SQL Editor:
+Each kid logs in with their **name and password**. There are no private links.
+
+- Send **everyone** the family link: `https://jack-norby.github.io/giftable/`
+- Each kid taps **Log in to edit your list**, picks their name, and types their password.
+- Capital letters don't matter. 5 wrong tries locks that name for 15 minutes.
+- After logging in they can tap **Change password**, and **Log out** on a shared computer.
+
+To reset a forgotten password, run this in the Supabase SQL Editor
+(change the name and type the new password in lowercase):
 
 ```sql
-select p.name, s.edit_token
-from giftable_people p join giftable_secrets s on s.person_id = p.id
-order by p.sort;
+update giftable_secrets
+   set pin_hash = crypt('newpassword', gen_salt('bf')), failed_attempts = 0, locked_until = null
+ where person_id = (select id from giftable_people where slug = 'jack');
 ```
-
-Then send:
-
-- **Each kid** their own edit link:
-  `https://YOUR-USERNAME.github.io/giftable/#/jack/edit/THEIR-TOKEN`
-  (use `jillian`, `lila`, `etta` for the others).
-- **Everyone else** the family link: `https://YOUR-USERNAME.github.io/giftable/`
 
 ### Add to home screen
 
 - **iPhone:** open the link in Safari → Share → **Add to Home Screen**.
 - **Android:** open the link in Chrome → ⋮ menu → **Add to Home screen**.
 
-Kids should do this from their edit link, so the icon opens straight to their list.
+On iPhone the home-screen app keeps its own login, so kids log in once more
+after adding it.
 
 ## Good to know
 
-- Claims are hidden from a kid on any device where they've opened their edit link.
-  If a kid opens the family link on a *different* device, they could see claims,
-  so it's a surprise-keeper, not a vault.
+- Claims are hidden from a kid on any device where they're logged in. If a kid
+  browses the family link on a device where they're *not* logged in, they could
+  see claims, so it's a surprise-keeper, not a vault.
 - A giver can undo a claim from the same phone or browser they claimed it on.
 - To add another person (a spouse, a new grandkid), run in the SQL Editor:
 
   ```sql
   insert into giftable_people (slug, name, sort) values ('sam', 'Sam', 5);
-  insert into giftable_secrets (person_id) select id from giftable_people where slug = 'sam';
+  insert into giftable_secrets (person_id, pin_hash)
+  select id, crypt('sam', gen_salt('bf')) from giftable_people where slug = 'sam';
   ```

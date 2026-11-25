@@ -192,5 +192,64 @@ insert into giftable_secrets (person_id)
 select id from giftable_people
 on conflict (person_id) do nothing;
 
--- See each person's private edit token (needed for their edit links):
--- select p.name, s.edit_token from giftable_people p join giftable_secrets s on s.person_id = p.id order by p.sort;
+-- Login with name + password ---------------------------------------------------
+-- (Columns and functions say "pin" for history; they hold a password.)
+-- Passwords are stored as bcrypt hashes, lowercased so capitals don't matter.
+-- 5 wrong tries locks that name for 15 minutes.
+alter table giftable_secrets add column if not exists pin_hash text;
+alter table giftable_secrets add column if not exists failed_attempts int not null default 0;
+alter table giftable_secrets add column if not exists locked_until timestamptz;
+
+-- Returns {ok: true, token} or {ok: false, error}. It returns instead of raising
+-- an error so the failed-attempt counter is saved.
+create or replace function giftable_login(p_slug text, p_pin text)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare
+  v_person uuid; v_hash text; v_token text; v_fails int; v_locked timestamptz;
+begin
+  select s.person_id, s.pin_hash, s.edit_token, s.failed_attempts, s.locked_until
+    into v_person, v_hash, v_token, v_fails, v_locked
+    from giftable_secrets s join giftable_people p on p.id = s.person_id
+   where p.slug = p_slug
+   for update of s;
+  if v_person is null or v_hash is null then
+    return jsonb_build_object('ok', false, 'error', 'That name doesn''t have a PIN yet. Ask a parent to set one.');
+  end if;
+  if v_locked is not null and v_locked > now() then
+    return jsonb_build_object('ok', false, 'error', 'Too many wrong tries. Wait 15 minutes and try again.');
+  end if;
+  if crypt(lower(trim(coalesce(p_pin, ''))), v_hash) = v_hash then
+    update giftable_secrets set failed_attempts = 0, locked_until = null where person_id = v_person;
+    return jsonb_build_object('ok', true, 'token', v_token);
+  end if;
+  v_fails := v_fails + 1;
+  if v_fails >= 5 then
+    update giftable_secrets set failed_attempts = 0, locked_until = now() + interval '15 minutes'
+     where person_id = v_person;
+    return jsonb_build_object('ok', false, 'error', 'Too many wrong tries. Wait 15 minutes and try again.');
+  end if;
+  update giftable_secrets set failed_attempts = v_fails where person_id = v_person;
+  return jsonb_build_object('ok', false, 'error', 'Wrong PIN. Try again.');
+end;
+$$;
+
+create or replace function giftable_set_pin(p_token text, p_pin text)
+returns void language plpgsql security definer set search_path = public, extensions as $$
+declare v_person uuid := giftable_person_for(p_token);
+begin
+  if v_person is null then raise exception 'Please log in again'; end if;
+  if length(lower(trim(coalesce(p_pin, '')))) not between 4 and 60 then
+    raise exception 'Password needs at least 4 characters';
+  end if;
+  update giftable_secrets
+     set pin_hash = crypt(lower(trim(p_pin)), gen_salt('bf')), failed_attempts = 0, locked_until = null
+   where person_id = v_person;
+end;
+$$;
+
+grant execute on function giftable_login(text, text), giftable_set_pin(text, text) to anon, authenticated;
+
+-- Set or reset someone's password (run in the SQL Editor; change the name and
+-- password, and type the password in lowercase):
+-- update giftable_secrets set pin_hash = crypt('newpassword', gen_salt('bf')), failed_attempts = 0, locked_until = null
+--  where person_id = (select id from giftable_people where slug = 'jack');
