@@ -253,3 +253,191 @@ grant execute on function giftable_login(text, text), giftable_set_pin(text, tex
 -- password, and type the password in lowercase):
 -- update giftable_secrets set pin_hash = crypt('newpassword', gen_salt('bf')), failed_attempts = 0, locked_until = null
 --  where person_id = (select id from giftable_people where slug = 'jack');
+
+-- =============================================================================
+-- Update 3: protect claimed gifts, "bought" checkmarks, edit warnings.
+-- Safe to run more than once. Later definitions replace earlier ones above.
+-- =============================================================================
+alter table giftable_items  add column if not exists updated_at timestamptz;
+alter table giftable_items  add column if not exists removed_at timestamptz;
+alter table giftable_claims add column if not exists bought boolean not null default false;
+
+create or replace function giftable_get_all()
+returns jsonb language sql stable security definer set search_path = public as $$
+  select jsonb_build_object(
+    'people', coalesce((select jsonb_agg(jsonb_build_object(
+        'id', id, 'slug', slug, 'name', name, 'colors', colors, 'sizes', sizes, 'sort', sort)
+        order by sort, name) from giftable_people), '[]'::jsonb),
+    'items', coalesce((select jsonb_agg(jsonb_build_object(
+        'id', id, 'person_id', person_id, 'category', category, 'name', name, 'link', link,
+        'price', price, 'priority', priority, 'size', size, 'color', color, 'notes', notes,
+        'created_at', created_at, 'updated_at', updated_at, 'removed_at', removed_at)
+        order by created_at) from giftable_items), '[]'::jsonb),
+    'claims', coalesce((select jsonb_agg(jsonb_build_object(
+        'item_id', item_id, 'claimed_by', claimed_by, 'claimed_at', created_at, 'bought', bought))
+        from giftable_claims), '[]'::jsonb)
+  );
+$$;
+
+create or replace function giftable_save_item(p_token text, p_item jsonb)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_person uuid := giftable_person_for(p_token);
+  v_id uuid;
+begin
+  if v_person is null then raise exception 'Please log in again'; end if;
+  if coalesce(trim(p_item->>'name'), '') = '' then raise exception 'Item needs a name'; end if;
+
+  if p_item ? 'id' and nullif(p_item->>'id', '') is not null then
+    update giftable_items set
+      category = left(coalesce(p_item->>'category', category), 40),
+      name     = left(p_item->>'name', 200),
+      link     = left(coalesce(p_item->>'link', ''), 1000),
+      price    = left(coalesce(p_item->>'price', ''), 40),
+      priority = left(coalesce(p_item->>'priority', 'like'), 20),
+      size     = left(coalesce(p_item->>'size', ''), 60),
+      color    = left(coalesce(p_item->>'color', ''), 60),
+      notes    = left(coalesce(p_item->>'notes', ''), 1000),
+      updated_at = now()
+    where id = (p_item->>'id')::uuid and person_id = v_person and removed_at is null
+    returning id into v_id;
+    if v_id is null then raise exception 'Item not found'; end if;
+  else
+    insert into giftable_items (person_id, category, name, link, price, priority, size, color, notes)
+    values (v_person,
+      left(coalesce(p_item->>'category', 'other'), 40),
+      left(p_item->>'name', 200),
+      left(coalesce(p_item->>'link', ''), 1000),
+      left(coalesce(p_item->>'price', ''), 40),
+      left(coalesce(p_item->>'priority', 'like'), 20),
+      left(coalesce(p_item->>'size', ''), 60),
+      left(coalesce(p_item->>'color', ''), 60),
+      left(coalesce(p_item->>'notes', ''), 1000))
+    returning id into v_id;
+  end if;
+  update giftable_people set updated_at = now() where id = v_person;
+  return jsonb_build_object('id', v_id);
+end;
+$$;
+
+-- A claimed gift isn't really deleted: it's hidden from everyone except the
+-- giver who claimed it, so they know it was removed.
+create or replace function giftable_delete_item(p_token text, p_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare v_person uuid := giftable_person_for(p_token);
+begin
+  if v_person is null then raise exception 'Please log in again'; end if;
+  if exists (select 1 from giftable_claims where item_id = p_id) then
+    update giftable_items set removed_at = now() where id = p_id and person_id = v_person;
+  else
+    delete from giftable_items where id = p_id and person_id = v_person;
+  end if;
+end;
+$$;
+
+create or replace function giftable_claim(p_item_id uuid, p_name text)
+returns text language plpgsql security definer set search_path = public as $$
+declare v_key text;
+begin
+  if coalesce(trim(p_name), '') = '' then raise exception 'Please enter your name'; end if;
+  if not exists (select 1 from giftable_items where id = p_item_id and removed_at is null) then
+    raise exception 'This gift was removed from the list';
+  end if;
+  insert into giftable_claims (item_id, claimed_by) values (p_item_id, left(trim(p_name), 60))
+  on conflict (item_id) do nothing
+  returning claim_key into v_key;
+  if v_key is null then raise exception 'Someone already claimed this gift'; end if;
+  return v_key;
+end;
+$$;
+
+create or replace function giftable_unclaim(p_item_id uuid, p_key text)
+returns boolean language plpgsql security definer set search_path = public as $$
+declare v_count int;
+begin
+  delete from giftable_claims where item_id = p_item_id and claim_key = p_key;
+  get diagnostics v_count = row_count;
+  if v_count > 0 then
+    delete from giftable_items where id = p_item_id and removed_at is not null;
+  end if;
+  return v_count > 0;
+end;
+$$;
+
+create or replace function giftable_mark_bought(p_item_id uuid, p_key text, p_bought boolean)
+returns boolean language plpgsql security definer set search_path = public as $$
+declare v_count int;
+begin
+  update giftable_claims set bought = coalesce(p_bought, false)
+   where item_id = p_item_id and claim_key = p_key;
+  get diagnostics v_count = row_count;
+  return v_count > 0;
+end;
+$$;
+
+grant execute on function giftable_mark_bought(uuid, text, boolean) to anon, authenticated;
+
+-- =============================================================================
+-- Update 4: sale prices. Empty sale_price means the gift isn't on sale.
+-- =============================================================================
+alter table giftable_items add column if not exists sale_price text not null default '';
+
+create or replace function giftable_get_all()
+returns jsonb language sql stable security definer set search_path = public as $$
+  select jsonb_build_object(
+    'people', coalesce((select jsonb_agg(jsonb_build_object(
+        'id', id, 'slug', slug, 'name', name, 'colors', colors, 'sizes', sizes, 'sort', sort)
+        order by sort, name) from giftable_people), '[]'::jsonb),
+    'items', coalesce((select jsonb_agg(jsonb_build_object(
+        'id', id, 'person_id', person_id, 'category', category, 'name', name, 'link', link,
+        'price', price, 'sale_price', sale_price, 'priority', priority, 'size', size, 'color', color, 'notes', notes,
+        'created_at', created_at, 'updated_at', updated_at, 'removed_at', removed_at)
+        order by created_at) from giftable_items), '[]'::jsonb),
+    'claims', coalesce((select jsonb_agg(jsonb_build_object(
+        'item_id', item_id, 'claimed_by', claimed_by, 'claimed_at', created_at, 'bought', bought))
+        from giftable_claims), '[]'::jsonb)
+  );
+$$;
+
+create or replace function giftable_save_item(p_token text, p_item jsonb)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_person uuid := giftable_person_for(p_token);
+  v_id uuid;
+begin
+  if v_person is null then raise exception 'Please log in again'; end if;
+  if coalesce(trim(p_item->>'name'), '') = '' then raise exception 'Item needs a name'; end if;
+
+  if p_item ? 'id' and nullif(p_item->>'id', '') is not null then
+    update giftable_items set
+      category = left(coalesce(p_item->>'category', category), 40),
+      name     = left(p_item->>'name', 200),
+      link     = left(coalesce(p_item->>'link', ''), 1000),
+      price    = left(coalesce(p_item->>'price', ''), 40),
+      sale_price = left(coalesce(p_item->>'sale_price', ''), 40),
+      priority = left(coalesce(p_item->>'priority', 'like'), 20),
+      size     = left(coalesce(p_item->>'size', ''), 60),
+      color    = left(coalesce(p_item->>'color', ''), 60),
+      notes    = left(coalesce(p_item->>'notes', ''), 1000),
+      updated_at = now()
+    where id = (p_item->>'id')::uuid and person_id = v_person and removed_at is null
+    returning id into v_id;
+    if v_id is null then raise exception 'Item not found'; end if;
+  else
+    insert into giftable_items (person_id, category, name, link, price, sale_price, priority, size, color, notes)
+    values (v_person,
+      left(coalesce(p_item->>'category', 'other'), 40),
+      left(p_item->>'name', 200),
+      left(coalesce(p_item->>'link', ''), 1000),
+      left(coalesce(p_item->>'price', ''), 40),
+      left(coalesce(p_item->>'sale_price', ''), 40),
+      left(coalesce(p_item->>'priority', 'like'), 20),
+      left(coalesce(p_item->>'size', ''), 60),
+      left(coalesce(p_item->>'color', ''), 60),
+      left(coalesce(p_item->>'notes', ''), 1000))
+    returning id into v_id;
+  end if;
+  update giftable_people set updated_at = now() where id = v_person;
+  return jsonb_build_object('id', v_id);
+end;
+$$;

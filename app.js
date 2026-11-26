@@ -16,7 +16,10 @@
     { id: "drinks", name: "Favorite drinks", emoji: "☕", ex: "Local coffee beans, medium roast" },
     { id: "home", name: "Home appliances", emoji: "🏠", ex: "Air fryer" },
     { id: "decor", name: "Decorations", emoji: "🎄", ex: "Ornaments for the tree" },
+    { id: "giftcards", name: "Gift cards", emoji: "💳", ex: "Target, Starbucks, Amazon…" },
+    { id: "experiences", name: "Experiences", emoji: "🎟️", ex: "Concert tickets, a cooking class, a massage" },
     { id: "charities", name: "Charities", emoji: "💝", charity: true, ex: "Local animal shelter" },
+    { id: "other", name: "Anything else", emoji: "✨", ex: "Something that doesn't fit anywhere else" },
   ];
   const CAT = Object.fromEntries(CATEGORIES.map((c) => [c.id, c]));
   const PRIORITIES = [
@@ -48,6 +51,46 @@
     "forest": "#228b22", "light blue": "#add8e6", "dark green": "#006400", periwinkle: "#ccccff",
   };
   const DEMO_KIDS = ["Jack", "Jillian", "Lila", "Etta"];
+
+  // ---------------------------------------------------------------------------
+  // Christmas decorations
+  // ---------------------------------------------------------------------------
+  const HOLLY = `<svg viewBox="0 0 64 40" width="64" height="40">
+    <path d="M30 22c-6-10-18-12-26-8 6 1 8 5 7 9 4-2 8 0 9 4 3-3 7-4 10-5z" fill="#3f8f5e"/>
+    <path d="M34 22c6-10 18-12 26-8-6 1-8 5-7 9-4-2-8 0-9 4-3-3-7-4-10-5z" fill="#2f7a4d"/>
+    <circle cx="27" cy="25" r="5" fill="#d23a4f"/><circle cx="37" cy="25" r="5" fill="#c02a40"/><circle cx="32" cy="19" r="5" fill="#e04a5e"/>
+    <circle cx="30.5" cy="17.5" r="1.4" fill="#fff" opacity=".7"/></svg>`;
+
+  const lights = (n) => `<div class="lights" aria-hidden="true">${"<i></i>".repeat(n)}</div>`;
+
+  function countdownText() {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    let xmas = new Date(now.getFullYear(), 11, 25);
+    if (today > xmas && now.getMonth() === 11) return "🎄 Merry Christmas!";
+    if (today > xmas) xmas = new Date(now.getFullYear() + 1, 11, 25);
+    const days = Math.round((xmas - today) / 86400000);
+    if (days === 0) return "🎄 Merry Christmas!";
+    if (days === 1) return "🎅 Christmas is tomorrow!";
+    return `🎄 ${days} days until Christmas`;
+  }
+
+  const reduceMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  function letItSnow() {
+    if (reduceMotion()) return;
+    document.querySelectorAll(".snowfall:empty").forEach((box) => {
+      let html = "";
+      for (let i = 0; i < 26; i++) {
+        const size = 3 + Math.random() * 5;
+        const dur = 7 + Math.random() * 8;
+        html += `<span style="left:${(Math.random() * 100).toFixed(1)}%;width:${size.toFixed(1)}px;height:${size.toFixed(1)}px;` +
+          `animation-duration:${dur.toFixed(1)}s,${(2.5 + Math.random() * 2).toFixed(1)}s;` +
+          `animation-delay:-${(Math.random() * dur).toFixed(1)}s,-${(Math.random() * 3).toFixed(1)}s;` +
+          `opacity:${(0.45 + Math.random() * 0.5).toFixed(2)}"></span>`;
+      }
+      box.innerHTML = html;
+    });
+  }
 
   // ---------------------------------------------------------------------------
   // Small helpers
@@ -187,6 +230,7 @@
     unclaim: (itemId, key) => rpc("giftable_unclaim", { p_item_id: itemId, p_key: key }),
     login: (slug, pin) => rpc("giftable_login", { p_slug: slug, p_pin: normPassword(pin) }),
     setPin: (token, pin) => rpc("giftable_set_pin", { p_token: token, p_pin: normPassword(pin) }),
+    markBought: (itemId, key, bought) => rpc("giftable_mark_bought", { p_item_id: itemId, p_key: key, p_bought: bought }),
   };
 
   const demo = {
@@ -215,7 +259,7 @@
       return {
         people: d.people.map(({ token, ...p }) => p),
         items: d.items,
-        claims: d.claims.map(({ item_id, claimed_by }) => ({ item_id, claimed_by })),
+        claims: d.claims.map(({ item_id, claimed_by, claimed_at, bought }) => ({ item_id, claimed_by, claimed_at, bought: !!bought })),
       };
     },
     async checkToken(slug, token) {
@@ -228,7 +272,7 @@
       if (item.id) {
         const existing = d.items.find((i) => i.id === item.id && i.person_id === p.id);
         if (!existing) throw new Error("Item not found");
-        Object.assign(existing, item, { person_id: p.id });
+        Object.assign(existing, item, { person_id: p.id, updated_at: new Date().toISOString() });
       } else {
         d.items.push({ ...item, id: uid(), person_id: p.id, created_at: new Date().toISOString() });
       }
@@ -237,8 +281,9 @@
     async deleteItem(token, id) {
       const d = this.db();
       const p = this.person(d, token);
-      d.items = d.items.filter((i) => !(i.id === id && i.person_id === p.id));
-      d.claims = d.claims.filter((c) => d.items.some((i) => i.id === c.item_id));
+      const it = d.items.find((i) => i.id === id && i.person_id === p.id);
+      if (it && d.claims.some((c) => c.item_id === id)) it.removed_at = new Date().toISOString();
+      else d.items = d.items.filter((i) => i !== it);
       this.save(d);
     },
     async saveProfile(token, colors, sizes) {
@@ -250,9 +295,10 @@
     },
     async claim(itemId, name) {
       const d = this.db();
+      if (!d.items.some((i) => i.id === itemId && !i.removed_at)) throw new Error("This gift was removed from the list");
       if (d.claims.some((c) => c.item_id === itemId)) throw new Error("Someone already claimed this gift");
       const key = uid();
-      d.claims.push({ item_id: itemId, claimed_by: name, claim_key: key });
+      d.claims.push({ item_id: itemId, claimed_by: name, claim_key: key, claimed_at: new Date().toISOString(), bought: false });
       this.save(d);
       return key;
     },
@@ -260,8 +306,16 @@
       const d = this.db();
       const before = d.claims.length;
       d.claims = d.claims.filter((c) => !(c.item_id === itemId && c.claim_key === key));
+      if (d.claims.length < before) d.items = d.items.filter((i) => !(i.id === itemId && i.removed_at));
       this.save(d);
       return d.claims.length < before;
+    },
+    async markBought(itemId, key, bought) {
+      const d = this.db();
+      const c = d.claims.find((x) => x.item_id === itemId && x.claim_key === key);
+      if (c) c.bought = !!bought;
+      this.save(d);
+      return !!c;
     },
     async login(slug, pin) {
       const p = this.db().people.find((x) => x.slug === slug);
@@ -282,7 +336,7 @@
   // ---------------------------------------------------------------------------
   // State
   // ---------------------------------------------------------------------------
-  const state = { people: [], items: [], claims: {}, loaded: false, error: null };
+  const state = { people: [], items: [], claims: {}, claimInfo: {}, loaded: false, error: null };
 
   async function load() {
     try {
@@ -290,6 +344,7 @@
       state.people = data.people || [];
       state.items = data.items || [];
       state.claims = Object.fromEntries((data.claims || []).map((c) => [c.item_id, c.claimed_by]));
+      state.claimInfo = Object.fromEntries((data.claims || []).map((c) => [c.item_id, { by: c.claimed_by, at: c.claimed_at, bought: !!c.bought }]));
       state.loaded = true;
       state.error = null;
     } catch (e) {
@@ -300,9 +355,54 @@
   const personBySlug = (slug) => state.people.find((p) => p.slug === slug);
   const itemsFor = (p) =>
     state.items
-      .filter((i) => i.person_id === p.id)
+      .filter((i) => i.person_id === p.id && !i.removed_at)
       .sort((a, b) => (PRIORITY_RANK[a.priority] ?? 1) - (PRIORITY_RANK[b.priority] ?? 1) || String(a.created_at).localeCompare(String(b.created_at)));
   const isMine = (p) => Boolean(tokens()[p.slug]);
+  const personById = (id) => state.people.find((p) => p.id === id);
+
+  // First number in a price like "$20–40" or "about $35".
+  const priceValue = (price) => {
+    const m = String(price || "").replace(/,/g, "").match(/\d+(\.\d+)?/);
+    return m ? parseFloat(m[0]) : null;
+  };
+  // The price a giver would pay today: the sale price if there is one.
+  const currentPrice = (i) => i.sale_price || i.price;
+  const priceHtml = (i) =>
+    i.sale_price
+      ? `<span class="price">${i.price ? `<span class="was">${esc(i.price)}</span> ` : ""}<span class="sale">${esc(i.sale_price)}</span></span>`
+      : i.price ? `<span class="price">${esc(i.price)}</span>` : "";
+  const saleTag = (i) => (i.sale_price ? `<span class="tag on-sale">🏷️ On sale</span>` : "");
+  const money = (n) => "$" + (Math.round(n * 100) / 100).toLocaleString(undefined, { maximumFractionDigits: 2 });
+
+  // From Christmas Day through January, kids can see who gave them what.
+  const thankYouTime = () => {
+    const d = new Date();
+    return (d.getMonth() === 11 && d.getDate() >= 25) || d.getMonth() === 0;
+  };
+
+  // Gifts this device claimed (claims are remembered per phone/computer).
+  function myClaims() {
+    const keys = claimKeys();
+    let stale = false;
+    const list = [];
+    for (const id of Object.keys(keys)) {
+      const item = state.items.find((i) => i.id === id);
+      if (!item || !state.claimInfo[id]) {
+        delete keys[id];
+        stale = true;
+        continue;
+      }
+      list.push(item);
+    }
+    if (stale && state.loaded) store.set("giftable.claims", keys);
+    return list;
+  }
+  const changedSinceClaim = (item) => {
+    const info = state.claimInfo[item.id];
+    if (!info || !item.updated_at || !info.at) return false;
+    if (Date.parse(item.updated_at) <= Date.parse(info.at)) return false;
+    return store.get("giftable.acks", {})[item.id] !== item.updated_at;
+  };
   const listNames = () => {
     const n = state.people.map((p) => p.name);
     return n.length > 1 ? `${n.slice(0, -1).join(", ")} and ${n[n.length - 1]}` : n.join("");
@@ -317,12 +417,17 @@
   function route() {
     const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
     if (!parts.length) return { view: "home" };
+    if (parts[0] === "mine") return { view: "mine" };
     if (parts[1] === "edit") return { view: "edit", slug: parts[0], token: parts[2] || tokens()[parts[0]] || "" };
     return { view: "list", slug: parts[0] };
   }
 
   let rendering = 0;
   async function render() {
+    await renderPage();
+    letItSnow();
+  }
+  async function renderPage() {
     const my = ++rendering;
     if (!state.loaded && !state.error) {
       app.innerHTML = `<div class="wrap"><div class="loading">Loading lists…</div></div>`;
@@ -336,6 +441,7 @@
     }
     const r = route();
     if (r.view === "home") return renderHome();
+    if (r.view === "mine") return renderMine();
     const p = personBySlug(r.slug);
     if (!p) {
       app.innerHTML = `<div class="wrap">${topbar(true)}<div class="empty">We couldn't find that list.</div></div>`;
@@ -367,21 +473,26 @@
           const open = items.filter((i) => !state.claims[i.id]).length;
           meta += ` · ${open} available`;
         }
-        return `<a class="person" href="#/${esc(p.slug)}">
-          <div class="avatar" style="background:${avatarColor(p)}">${esc(p.name[0] || "?")}</div>
+        return `<a class="person" href="#/${esc(p.slug)}" style="--c:${avatarColor(p)}">
+          <div class="avatar" style="--c:${avatarColor(p)}">${esc(p.name[0] || "?")}</div>
           <h2>${esc(p.name)}</h2><div class="meta">${meta}</div></a>`;
       })
       .join("");
 
     app.innerHTML = `<div class="wrap">
       ${demoBanner()}
-      <section class="hero">
-        <h1>Giftable</h1>
-        <p>Our family's Christmas wish lists. Pick a person to see what they'd love, and claim a gift so nobody doubles up.</p>
+      <section class="hero festive">${lights(18)}<div class="snowfall" aria-hidden="true"></div>
+        <div class="hero-inner">
+          <div class="holly" aria-hidden="true">${HOLLY}</div>
+          <h1>Giftable</h1>
+          <p>Our family's Christmas wish lists. Pick a person to see what they'd love, and claim a gift so nobody doubles up.</p>
+          <div class="countdown">${countdownText()}</div>
+        </div>
       </section>
       <div class="share-row" style="margin:0 0 20px">${mine.length
         ? mine.map((p) => `<a class="btn primary" href="#/${esc(p.slug)}/edit">✏️ Edit my list${mine.length > 1 ? ` (${esc(p.name)})` : ""}</a>`).join("")
-        : `<button class="btn primary" data-action="login">🔑 Log in to edit your list</button>`}</div>
+        : `<button class="btn primary" data-action="login">🔑 Log in to edit your list</button>`}
+        ${myClaims().length ? `<a class="btn berry" href="#/mine">🛍️ My shopping list (${myClaims().length})</a>` : ""}</div>
       <div class="people">${cards}</div>
       <div class="share-row">
         <button class="btn" data-action="share-family">Share Giftable with family</button>
@@ -395,6 +506,7 @@
           <li>Tip: use your browser's <strong>Share → Add to Home Screen</strong> to keep Giftable like an app.</li>
         </ol>
       </section>
+      <footer class="foot">Merry Christmas from our family 🎄</footer>
     </div>`;
   }
 
@@ -424,6 +536,7 @@
     const myKey = claimKeys()[item.id];
     const pr = PRIORITIES.find(([k]) => k === item.priority) || PRIORITIES[1];
     const tags = [`<span class="tag p-${pr[0]}">${pr[1]}</span>`];
+    if (item.sale_price) tags.push(saleTag(item));
     if (item.size) tags.push(`<span class="tag">Size: ${esc(item.size)}</span>`);
     if (item.color) tags.push(`<span class="tag">Color: ${esc(item.color)}</span>`);
     const href = normalizeLink(item.link);
@@ -432,14 +545,22 @@
       : "";
 
     let actions = "";
+    let notice = "";
+    const fromNote = thankYouTime() && claimedBy ? `<span class="claim-note from-note">🎁 From <strong>${esc(claimedBy)}</strong></span>` : "";
+    if (mode === "give" && claimedBy && myKey && changedSinceClaim(item)) {
+      const who = personById(item.person_id);
+      notice = `<div class="warn">⚠️ ${esc(who ? who.name : "They")} changed this after you claimed it. Double-check the details.
+        <button class="btn small" data-action="ack-change" data-id="${esc(item.id)}">Got it</button></div>`;
+    }
     if (mode === "edit") {
       actions = `${linkBtn}<span class="spacer" style="flex:1"></span>
         <button class="btn small" data-action="edit-item" data-id="${esc(item.id)}">Edit</button>
-        <button class="btn small ghost" data-action="delete-item" data-id="${esc(item.id)}">Delete</button>`;
+        <button class="btn small ghost" data-action="delete-item" data-id="${esc(item.id)}">Delete</button>${fromNote ? `<div style="flex-basis:100%">${fromNote}</div>` : ""}`;
     } else if (mode === "own") {
-      actions = linkBtn;
+      actions = linkBtn + fromNote;
     } else if (claimedBy && myKey) {
-      actions = `${linkBtn}<span class="claim-note">✅ <strong>You're getting this</strong></span>
+      const bought = state.claimInfo[item.id]?.bought;
+      actions = `${linkBtn}<span class="claim-note">✅ <strong>${bought ? "You bought this" : "You're getting this"}</strong></span>
         <button class="btn small ghost" data-action="unclaim" data-id="${esc(item.id)}">Undo</button>`;
     } else if (claimedBy) {
       actions = `${linkBtn}<span class="claim-note">🎁 Claimed by <strong>${esc(claimedBy)}</strong></span>`;
@@ -449,9 +570,10 @@
 
     const showClaimed = mode === "give" && claimedBy;
     return `<article class="item${showClaimed ? " claimed" : ""}">
-      <div class="item-top"><h3>${esc(item.name)}</h3>${item.price ? `<span class="price">${esc(item.price)}</span>` : ""}</div>
+      <div class="item-top"><h3>${esc(item.name)}</h3>${priceHtml(item)}</div>
       <div class="tags">${tags.join("")}</div>
       ${item.notes ? `<p class="notes">${esc(item.notes)}</p>` : ""}
+      ${notice}
       <div class="item-actions">${actions}</div>
     </article>`;
   }
@@ -473,27 +595,100 @@
     const own = isMine(p);
     const all = itemsFor(p);
     const hideClaimed = !own && store.get("giftable.hideClaimed", false);
-    const items = hideClaimed ? all.filter((i) => !state.claims[i.id] || claimKeys()[i.id]) : all;
+    const maxPrice = own ? 0 : Number(store.get("giftable.maxPrice", 0)) || 0;
+    let items = hideClaimed ? all.filter((i) => !state.claims[i.id] || claimKeys()[i.id]) : all;
+    if (maxPrice) items = items.filter((i) => { const v = priceValue(currentPrice(i)); return v == null || v <= maxPrice; });
+    const mineCount = own ? 0 : myClaims().length;
     const open = all.filter((i) => !state.claims[i.id]).length;
 
     app.innerHTML = `<div class="wrap">
       ${topbar(true)}
       ${demoBanner()}
-      <div class="list-head">
-        <div class="avatar" style="background:${avatarColor(p)}">${esc(p.name[0] || "?")}</div>
+      <div class="list-head festive">${lights(14)}<div class="snowfall" aria-hidden="true"></div>
+        <div class="avatar" style="--c:${avatarColor(p)}">${esc(p.name[0] || "?")}</div>
         <div><h1>${esc(p.name)}'s list</h1>
         <div class="sub">${all.length} gift idea${all.length === 1 ? "" : "s"}${own ? "" : ` · ${open} still available`}</div></div>
       </div>
       ${own ? `<div class="private">This is <strong>your</strong> list, so claims are hidden to keep the surprise.
         <div style="margin-top:10px"><a class="btn small primary" href="#/${esc(p.slug)}/edit">✏️ Edit my list</a></div></div>` : ""}
       ${profileBlock(p)}
+      ${own ? "" : `<div class="price-filter" role="group" aria-label="Filter by price">
+        ${[[0, "Any"], [25, "Under $25"], [50, "Under $50"], [100, "Under $100"]]
+          .map(([v, label]) => `<button class="chip-btn${maxPrice === v ? " on" : ""}" data-action="price" data-max="${v}" aria-pressed="${maxPrice === v}">${label}</button>`)
+          .join("")}
+      </div>`}
       <div class="toolbar">
         ${own ? "" : `<label class="toggle"><input type="checkbox" data-action="toggle-hide" ${hideClaimed ? "checked" : ""}> Hide claimed gifts</label>`}
         <span class="spacer"></span>
+        ${mineCount ? `<a class="btn small primary" href="#/mine">🛍️ My shopping list (${mineCount})</a>` : ""}
         <button class="btn small" data-action="share-person" data-slug="${esc(p.slug)}">Share ${esc(p.name)}'s list</button>
       </div>
-      ${all.length ? categorySections(items, own ? "own" : "give") || `<div class="empty">Every gift has been claimed. 🎉</div>`
+      ${thankYouTime() && own ? `<div class="banner">🎄 Merry Christmas! You can now see who gave you each gift, for your thank-you notes.</div>` : ""}
+      ${all.length ? categorySections(items, own ? "own" : "give") || `<div class="empty">${maxPrice ? `Nothing left under ${money(maxPrice)}. Try a higher price.` : "Every gift has been claimed. 🎉"}</div>`
         : `<div class="empty">${esc(p.name)} hasn't added anything yet. Check back soon!</div>`}
+    </div>`;
+  }
+
+  // ---------------------------------------------------------------------------
+  // My shopping list: everything this device has claimed
+  // ---------------------------------------------------------------------------
+  function renderMine() {
+    const mine = myClaims();
+    const keys = claimKeys();
+    const active = mine.filter((i) => !i.removed_at);
+    const boughtCount = active.filter((i) => state.claimInfo[i.id]?.bought).length;
+    const priced = active.map((i) => priceValue(currentPrice(i))).filter((v) => v != null);
+    const total = priced.reduce((a, b) => a + b, 0);
+    const unpriced = active.length - priced.length;
+
+    const groups = state.people
+      .map((p) => ({ p, items: mine.filter((i) => i.person_id === p.id) }))
+      .filter((g) => g.items.length);
+
+    const card = (item, p) => {
+      const info = state.claimInfo[item.id] || {};
+      const cat = CAT[item.category] || { name: "Other", emoji: "🎁" };
+      const href = normalizeLink(item.link);
+      const tags = [`<span class="tag">${cat.emoji} ${esc(cat.name)}</span>`];
+      if (item.sale_price) tags.push(saleTag(item));
+      if (item.size) tags.push(`<span class="tag">Size: ${esc(item.size)}</span>`);
+      if (item.color) tags.push(`<span class="tag">Color: ${esc(item.color)}</span>`);
+      let warn = "";
+      if (item.removed_at) {
+        warn = `<div class="warn">⚠️ ${esc(p.name)} removed this from their list. If you haven't bought it yet, you may want to tap <strong>Undo</strong>.</div>`;
+      } else if (changedSinceClaim(item)) {
+        warn = `<div class="warn">⚠️ ${esc(p.name)} changed this after you claimed it. Double-check the details.
+          <button class="btn small" data-action="ack-change" data-id="${esc(item.id)}">Got it</button></div>`;
+      }
+      return `<article class="item${info.bought ? " bought" : ""}${item.removed_at ? " removed" : ""}">
+        <div class="item-top"><h3>${esc(item.name)}</h3>${priceHtml(item)}</div>
+        <div class="tags">${tags.join("")}</div>
+        ${item.notes ? `<p class="notes">${esc(item.notes)}</p>` : ""}
+        ${warn}
+        <div class="item-actions">
+          ${href ? `<a class="btn small" href="${esc(href)}" target="_blank" rel="noopener noreferrer">View item ↗</a>` : ""}
+          ${item.removed_at ? "" : `<button class="btn small ${info.bought ? "primary" : ""}" data-action="toggle-bought" data-id="${esc(item.id)}" aria-pressed="${!!info.bought}">${info.bought ? "✓ Bought" : "Mark as bought"}</button>`}
+          ${keys[item.id] ? `<button class="btn small ghost" data-action="unclaim" data-id="${esc(item.id)}">Undo</button>` : ""}
+        </div>
+      </article>`;
+    };
+
+    app.innerHTML = `<div class="wrap">
+      ${topbar(true)}
+      ${demoBanner()}
+      <div class="list-head festive">${lights(14)}<div class="snowfall" aria-hidden="true"></div>
+        <div class="avatar" style="--c:#b3263e">🛍️</div>
+        <div><h1>My shopping list</h1>
+        <div class="sub">${mine.length ? `${boughtCount} of ${active.length} bought · ${countdownText()}` : countdownText()}</div></div>
+      </div>
+      ${mine.length ? `<div class="total-row">
+          <div><div class="label">Total so far</div><div class="total">${money(total)}</div></div>
+          <div class="sub">${unpriced ? `+ ${unpriced} gift${unpriced === 1 ? "" : "s"} without a price` : "All gifts have a price"}</div>
+        </div>
+        ${groups.map((g) => `<section class="category"><h2>For ${esc(g.p.name)} <span class="count">${g.items.length}</span></h2>
+          ${g.items.map((i) => card(i, g.p)).join("")}</section>`).join("")}`
+        : `<div class="empty">You haven't claimed any gifts yet.<br>Pick a person on the <a href="#/">family page</a> and tap <strong>I'll get this</strong>.</div>`}
+      <p class="foot">Your claims are remembered on this phone or computer.</p>
     </div>`;
   }
 
@@ -538,9 +733,9 @@
     app.innerHTML = `<div class="wrap">
       ${topbar(true)}
       ${demoBanner()}
-      <div class="list-head">
-        <div class="avatar" style="background:${avatarColor(p)}">${esc(p.name[0] || "?")}</div>
-        <div><h1>Hi ${esc(p.name)}!</h1><div class="sub">Add what you'd love this Christmas.</div></div>
+      <div class="list-head festive">${lights(14)}<div class="snowfall" aria-hidden="true"></div>
+        <div class="avatar" style="--c:${avatarColor(p)}">${esc(p.name[0] || "?")}</div>
+        <div><h1>Hi ${esc(p.name)}!</h1><div class="sub">Add what you'd love this Christmas. ${countdownText()}</div></div>
       </div>
       <div class="private">🔒 You're logged in as <strong>${esc(p.name)}</strong>. Only you can change your list, and you'll never see who claimed what.
         <div class="share-row" style="justify-content:flex-start;margin-top:10px">
@@ -606,12 +801,16 @@
       <div class="field"><label for="f-name">What is it?</label><input id="f-name" name="name" required maxlength="200" value="${esc(item.name || "")}" autofocus></div>
       <div class="field"><label for="f-link">Link <span class="hint">(optional)</span></label>
         <input id="f-link" name="link" type="url" inputmode="url" placeholder="Paste a link to the store page" value="${esc(item.link || "")}"></div>
-      <div class="row">
-        <div class="field"><label for="f-price">Price <span class="hint">(optional)</span></label>
-          <input id="f-price" name="price" maxlength="40" placeholder="$25 or $20–40" value="${esc(item.price || "")}"></div>
-        <div class="field"><label>How much do you want it?</label>
-          <div class="seg">${PRIORITIES.map(([k, label]) => `<input type="radio" name="priority" id="pr-${k}" value="${k}" ${item.priority === k ? "checked" : ""}><label for="pr-${k}">${label}</label>`).join("")}</div></div>
+      <div class="field"><label for="f-price"><span id="f-price-label">Regular price</span> <span class="hint">(optional)</span></label>
+        <input id="f-price" name="price" maxlength="40" placeholder="$25 or $20–40" value="${esc(item.price || "")}"></div>
+      <div class="sale-box" id="f-sale-box">
+        <label class="toggle sale-toggle"><input type="checkbox" id="f-onsale" name="onsale" ${item.sale_price ? "checked" : ""}> 🏷️ It's on sale right now</label>
+        <div class="field" id="f-sale-field"><label for="f-sale">Sale price</label>
+          <input id="f-sale" name="sale_price" maxlength="40" inputmode="decimal" placeholder="e.g. $19.99" value="${esc(item.sale_price || "")}">
+          <span class="hint">Givers will see the regular price crossed out.</span></div>
       </div>
+      <div class="field"><label>How much do you want it?</label>
+        <div class="seg">${PRIORITIES.map(([k, label]) => `<input type="radio" name="priority" id="pr-${k}" value="${k}" ${item.priority === k ? "checked" : ""}><label for="pr-${k}">${label}</label>`).join("")}</div></div>
       <div class="row" id="f-sized">
         <div class="field"><label for="f-size">Size</label><input id="f-size" name="size" maxlength="60" value="${esc(item.size || "")}"></div>
         <div class="field"><label for="f-color">Color</label><input id="f-color" name="color" maxlength="60" value="${esc(item.color || "")}"></div>
@@ -637,11 +836,19 @@
           return false;
         }
         const cat = CAT[fd.get("category")];
+        const onSale = !cat.charity && fd.get("onsale") === "on";
+        const salePrice = onSale ? String(fd.get("sale_price") || "").trim() : "";
+        if (onSale && !salePrice) {
+          $("#f-sale", f).focus();
+          toast("Enter the sale price, or untick “on sale”");
+          return false;
+        }
         const payload = {
           category: cat.id,
           name,
           link,
           price: String(fd.get("price") || "").trim(),
+          sale_price: salePrice,
           priority: String(fd.get("priority") || "like"),
           size: cat.sized ? String(fd.get("size") || "").trim() : "",
           color: cat.sized ? String(fd.get("color") || "").trim() : "",
@@ -664,8 +871,15 @@
       $("#f-color", form).placeholder = c.exColor ? "e.g. " + c.exColor : "";
       $("#f-link", form).placeholder = c.charity ? "Paste a link to their donation page" : "Paste a link to the store page";
       $("#f-price", form).placeholder = c.charity ? "Suggested amount" : "$25 or $20–40";
+      $("#f-price-label", form).textContent = c.charity ? "Amount" : "Regular price";
+      $("#f-sale-box", form).style.display = c.charity ? "none" : "";
+      $("#f-sale-field", form).style.display = $("#f-onsale", form).checked ? "" : "none";
     };
     $("#f-cat", form).addEventListener("change", sync);
+    $("#f-onsale", form).addEventListener("change", () => {
+      sync();
+      if ($("#f-onsale", form).checked) $("#f-sale", form).focus();
+    });
     sync();
   }
 
@@ -848,6 +1062,31 @@
       store.set("giftable.tokens", t);
       location.hash = "#/";
       return toast("Logged out");
+    }
+
+    if (action === "price") {
+      store.set("giftable.maxPrice", Number(el.dataset.max) || 0);
+      return render();
+    }
+    if (action === "ack-change" && item) {
+      const acks = store.get("giftable.acks", {});
+      acks[item.id] = item.updated_at;
+      store.set("giftable.acks", acks);
+      return render();
+    }
+    if (action === "toggle-bought" && item) {
+      const key = claimKeys()[item.id];
+      if (!key) return;
+      el.disabled = true;
+      const nowBought = !state.claimInfo[item.id]?.bought;
+      try {
+        await api.markBought(item.id, key, nowBought);
+        toast(nowBought ? "Marked as bought 🎁" : "Marked as not bought yet");
+      } catch (err) {
+        toast(err.message);
+      }
+      await load();
+      return render();
     }
 
     if (action === "claim" && item) {

@@ -208,3 +208,191 @@ dialog::backdrop { background: rgba(20, 20, 20, .45); }
   .people { grid-template-columns: 1fr 1fr; gap: 10px; }
   .person { padding: 16px 10px; }
 }
+
+/* ===========================================================================
+   Christmas theme
+   =========================================================================== */
+:root {
+  --pine-deep: #143528;
+  --gold-bright: #f2cf63;
+  --cream-on-pine: #fff6e0;
+  --wire: #1d3a2d;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0e1714; --surface: #17221e; --surface-2: #1f2c27; --line: #2b3a34; }
+}
+
+body {
+  background:
+    radial-gradient(1200px 500px at 50% -200px, rgba(179, 38, 62, .08), transparent 70%),
+    var(--bg);
+}
+
+/* Festive banner panels (home hero + list headers) ---------------------- */
+.festive {
+  position: relative;
+  overflow: hidden;
+  color: var(--cream-on-pine);
+  background:
+    radial-gradient(130% 90% at 50% 0%, #2f7052 0%, #1f4d3a 48%, var(--pine-deep) 100%);
+  border-radius: 24px;
+  box-shadow: 0 10px 30px rgba(20, 53, 40, .28), inset 0 0 0 1px rgba(255, 255, 255, .06);
+  isolation: isolate;
+}
+.festive::after { /* snowy ground */
+  content: "";
+  position: absolute; left: 0; right: 0; bottom: 0; height: 70px; z-index: -1;
+  background: radial-gradient(70% 100% at 30% 100%, rgba(255,255,255,.13), transparent 70%),
+              radial-gradient(60% 90% at 80% 100%, rgba(255,255,255,.10), transparent 70%);
+}
+
+.hero.festive { margin: 0 0 22px; padding: 54px 20px 30px; }
+.hero-inner { position: relative; z-index: 2; }
+.hero.festive h1 {
+  color: var(--cream-on-pine); font-size: clamp(42px, 12vw, 62px); letter-spacing: -.01em;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, .18);
+}
+.hero.festive p { color: rgba(255, 246, 224, .86); }
+.holly { display: flex; justify-content: center; margin-bottom: 2px; }
+.countdown {
+  display: inline-block; margin-top: 16px; padding: 7px 16px; border-radius: 999px;
+  font-weight: 600; font-size: 15px; color: var(--gold-bright);
+  background: rgba(255, 255, 255, .1); border: 1px solid rgba(242, 207, 99, .35);
+}
+
+.list-head.festive { padding: 40px 18px 20px; margin-bottom: 16px; }
+.list-head.festive > * { position: relative; z-index: 2; }
+.list-head.festive h1 { color: var(--cream-on-pine); }
+.list-head.festive .sub { color: rgba(255, 246, 224, .82); }
+
+/* String lights ------------------------------------------------------------ */
+.lights {
+  position: absolute !important; z-index: 3 !important; top: 0; left: 0; right: 0; height: 30px;
+  display: flex; justify-content: space-around; padding: 0 8px; pointer-events: none;
+}
+.lights::before { /* the wire */
+  content: ""; position: absolute; left: -10px; right: -10px; top: -14px; height: 28px;
+  border-bottom: 2px solid var(--wire);
+  border-radius: 0 0 50% 50% / 0 0 14px 14px;
+  opacity: .9;
+}
+.lights i {
+  position: relative; display: block; width: 10px; height: 15px; margin-top: 11px;
+  border-radius: 50% 50% 50% 50% / 40% 40% 60% 60%;
+  background: #e8475c; box-shadow: 0 2px 12px 2px rgba(232, 71, 92, .7);
+  animation: twinkle 2.4s ease-in-out infinite;
+}
+.lights i::before { /* socket */
+  content: ""; position: absolute; top: -4px; left: 2px; width: 6px; height: 5px;
+  border-radius: 2px; background: #2c3b34;
+}
+.lights i:nth-child(4n+2) { background: var(--gold-bright); box-shadow: 0 2px 12px 2px rgba(242, 207, 99, .7); animation-delay: .6s; }
+.lights i:nth-child(4n+3) { background: #4fc08a; box-shadow: 0 2px 12px 2px rgba(79, 192, 138, .7); animation-delay: 1.2s; }
+.lights i:nth-child(4n+4) { background: #6aa8ff; box-shadow: 0 2px 12px 2px rgba(106, 168, 255, .7); animation-delay: 1.8s; }
+.lights i:nth-child(odd) { margin-top: 13px; }
+@keyframes twinkle { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+
+/* Snow --------------------------------------------------------------------- */
+.snowfall { position: absolute !important; inset: 0; z-index: 1 !important; pointer-events: none; }
+.snowfall span {
+  position: absolute; top: -10px; border-radius: 50%; background: #fff;
+  box-shadow: 0 0 4px rgba(255, 255, 255, .6);
+  animation-name: snowfall, sway; animation-timing-function: linear, ease-in-out;
+  animation-iteration-count: infinite, infinite; animation-direction: normal, alternate;
+}
+@keyframes snowfall { from { transform: translateY(-10px); } to { transform: translateY(var(--fall, 340px)); } }
+@keyframes sway { from { margin-left: -6px; } to { margin-left: 6px; } }
+.hero .snowfall { --fall: 420px; }
+.list-head .snowfall { --fall: 200px; }
+@media (prefers-reduced-motion: reduce) {
+  .snowfall { display: none; }
+  .lights i { animation: none; }
+}
+
+/* Ornament avatars ----------------------------------------------------------- */
+.avatar {
+  position: relative; flex: none;
+  background: radial-gradient(circle at 34% 28%, rgba(255, 255, 255, .55), rgba(255, 255, 255, 0) 40%), var(--c, var(--pine));
+  box-shadow: inset -6px -8px 14px rgba(0, 0, 0, .22), 0 6px 14px rgba(0, 0, 0, .18);
+  margin-top: 12px;
+}
+.avatar::before { /* cap */
+  content: ""; position: absolute; top: -8px; left: 50%; width: 18px; height: 10px; transform: translateX(-50%);
+  border-radius: 3px 3px 2px 2px; background: linear-gradient(90deg, #a8841a, #f2cf63 45%, #a8841a);
+}
+.avatar::after { /* hook */
+  content: ""; position: absolute; top: -16px; left: 50%; width: 9px; height: 9px; transform: translateX(-50%);
+  border: 2px solid #c9a227; border-radius: 50%;
+}
+
+/* Person cards: candy-cane trim ------------------------------------------- */
+.person { position: relative; overflow: hidden; padding-top: 26px; transition: transform .15s ease, box-shadow .15s ease; }
+.person::before {
+  content: ""; position: absolute; top: 0; left: 0; right: 0; height: 7px;
+  background: repeating-linear-gradient(-45deg, var(--berry) 0 9px, #fff 9px 18px);
+}
+.person:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(40, 30, 20, .14); }
+@media (prefers-color-scheme: dark) {
+  .person::before { background: repeating-linear-gradient(-45deg, #c43a51 0 9px, #f1ede6 9px 18px); }
+}
+
+/* Gift cards get a ribbon down the side ------------------------------------- */
+.item { position: relative; border-left: 5px solid var(--pine); }
+.item:has(.p-love) { border-left-color: var(--berry); }
+.item:has(.p-nice) { border-left-color: var(--gold); }
+.item.claimed { border-left-style: dashed; }
+
+.category h2 { padding-bottom: 6px; border-bottom: 2px dotted var(--line); }
+
+/* Buttons and bits --------------------------------------------------------- */
+.btn.primary { box-shadow: 0 4px 14px rgba(31, 77, 58, .25); }
+.btn.berry { box-shadow: 0 4px 14px rgba(179, 38, 62, .25); }
+.fab { border: 2px solid var(--gold-bright); }
+.howto { border-top: 4px solid var(--berry); }
+.howto h3::before { content: "🎁 "; }
+.foot { text-align: center; color: var(--muted); font-size: 14px; margin-top: 28px; }
+.private { border: 1px solid rgba(179, 38, 62, .18); }
+.festive .avatar { box-shadow: inset -6px -8px 14px rgba(0, 0, 0, .22), 0 0 0 3px rgba(255, 246, 224, .22), 0 6px 18px rgba(0, 0, 0, .3); }
+
+/* Price filter --------------------------------------------------------------- */
+.price-filter { display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; margin: 0 0 12px; padding-bottom: 2px; scrollbar-width: none; }
+.price-filter::-webkit-scrollbar { display: none; }
+.chip-btn {
+  flex: none; border: 1px solid var(--line); background: var(--surface); color: var(--text);
+  padding: 7px 10px; border-radius: 999px; font-size: 13px; font-weight: 600; cursor: pointer; min-height: 36px;
+}
+.chip-btn.on { background: var(--berry); border-color: var(--berry); color: #fff; }
+@media (prefers-color-scheme: dark) { .chip-btn.on { color: #10140f; } }
+
+/* Warnings for claimed gifts that changed or were removed ------------------ */
+.warn {
+  margin-top: 10px; padding: 10px 12px; border-radius: 12px; font-size: 14px;
+  background: var(--gold-soft); border: 1px solid rgba(168, 132, 26, .35);
+  display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap;
+}
+
+/* Shopping list -------------------------------------------------------------- */
+.total-row {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 14px 16px; margin-bottom: 6px; box-shadow: var(--shadow);
+}
+.total-row .label { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+.total-row .total { font-family: var(--display); font-size: 30px; font-weight: 700; color: var(--pine); }
+.total-row .sub { color: var(--muted); font-size: 14px; }
+.item.bought { border-left-color: var(--pine); border-left-style: solid; }
+.item.bought h3::before { content: "✓ "; color: var(--pine); }
+.item.removed { opacity: .8; border-left-color: var(--gold); border-left-style: dashed; }
+.item.removed h3 { text-decoration: line-through; }
+.from-note { color: var(--berry); }
+.from-note strong { color: var(--berry); }
+
+/* Sale prices ------------------------------------------------------------------ */
+.price .was { text-decoration: line-through; color: var(--muted); font-weight: 500; margin-right: 2px; }
+.price .sale { color: var(--berry); }
+.tag.on-sale { background: var(--berry-soft); color: var(--berry); font-weight: 600; }
+.sale-box {
+  background: var(--surface-2); border-radius: 12px; padding: 12px 12px 2px; margin: -4px 0 14px;
+}
+.sale-toggle { color: var(--text); font-weight: 600; font-size: 15px; margin-bottom: 10px; }
+.sale-toggle input { accent-color: var(--berry); }
