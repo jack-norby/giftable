@@ -1,0 +1,32 @@
+# Free Supabase projects pause after a week without visits. This visits the
+# Giftable database every Monday so it stays awake all year.
+name: Keep Giftable awake
+on:
+  schedule:
+    - cron: "17 14 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Visit the database
+        run: |
+          curl -sf -X POST "https://whpugkxgrhhwpefwpywy.supabase.co/rest/v1/rpc/giftable_get_all" \
+            -H "apikey: sb_publishable_FP0DL16qwNdYMzyLSGcmaA_EtuhxEk9" \
+            -H "Content-Type: application/json" -d '{}' -o /dev/null
+          echo "Database visited."
+      - uses: actions/checkout@v4
+      - name: Keep this weekly schedule switched on
+        # GitHub turns off schedules in repositories with no activity for 60 days.
+        run: |
+          last=$(git log -1 --format=%ct)
+          if [ $(( $(date +%s) - last )) -gt $(( 45 * 86400 )) ]; then
+            date -u > .github/keep-awake.txt
+            git config user.name "giftable-bot"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add .github/keep-awake.txt
+            git commit -m "Keep the weekly database visit switched on"
+            git push
+          fi
