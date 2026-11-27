@@ -26,8 +26,8 @@ database so everyone sees the same lists.
 | `supabase/setup.sql` | Creates the database tables and the four kids |
 | `manifest.webmanifest`, `sw.js`, `icons/` | Home-screen app support |
 
-If `config.js` is left empty the app runs in **demo mode**: everything works,
-but lists are saved only in that one browser.
+| `supabase/functions/giftable-preview/` | The link auto-fill helper (a Supabase Edge Function) |
+| `.github/workflows/keep-awake.yml` | Visits the database weekly so the free plan doesn't pause it |
 
 ## Setup
 
@@ -70,6 +70,28 @@ update giftable_secrets
 
 On iPhone the home-screen app keeps its own login, so kids log in once more
 after adding it.
+
+## Features
+
+- **Shopper codes.** A shopper's first claim gives them a code like `SUE-7K4PX`.
+  Entering it on **My shopping list** on another device brings their claims there.
+- **My shopping list** with *Mark as bought* and a running total.
+- **Protected claims.** If a kid deletes or edits a gift someone claimed, the
+  claimer is warned instead of the gift silently vanishing.
+- **✨ New badges** for gifts added or put on sale since your last visit.
+- **⭐ Top picks.** Each person can star up to 3 gifts; they show first.
+- **Photos and auto-fill.** Paste a store link and tap ✨ Fill in. Some stores
+  (Amazon, for example) block this, so the details are typed in by hand.
+- **Sale prices**, a **price filter**, and a **thank-you list** from Dec 25.
+- **Parent dashboard** (link at the bottom of the family page): progress and
+  spending per kid, who's shopping, reset passwords, add people, and a
+  spreadsheet backup. The parent password is set in the SQL Editor (see
+  `supabase/setup.sql`) and can be changed from the dashboard.
+
+### Auto-fill helper
+
+Deploy `supabase/functions/giftable-preview/index.ts` as an Edge Function named
+`giftable-preview` with **Verify JWT turned off**.
 
 ## Good to know
 

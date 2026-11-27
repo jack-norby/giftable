@@ -1,7 +1,7 @@
 // Giftable service worker: lets the app open from the home screen and
 // shows the last-loaded app files when offline. Always tries the network
 // first, so updates show up right away. List data is never cached.
-const CACHE = "giftable-v5";
+const CACHE = "giftable-v6";
 const SHELL = ["./", "index.html", "styles.css", "app.js", "config.js", "manifest.webmanifest", "icons/icon-192.png"];
 
 self.addEventListener("install", (e) => {

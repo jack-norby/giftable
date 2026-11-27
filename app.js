@@ -50,7 +50,6 @@
     "burnt orange": "#cc5500", terracotta: "#e2725b", "dusty blue": "#7393b3", lilac: "#c8a2c8",
     "forest": "#228b22", "light blue": "#add8e6", "dark green": "#006400", periwinkle: "#ccccff",
   };
-  const DEMO_KIDS = ["Jack", "Jillian", "Lila", "Etta"];
 
   // ---------------------------------------------------------------------------
   // Christmas decorations
@@ -231,107 +230,24 @@
     login: (slug, pin) => rpc("giftable_login", { p_slug: slug, p_pin: normPassword(pin) }),
     setPin: (token, pin) => rpc("giftable_set_pin", { p_token: token, p_pin: normPassword(pin) }),
     markBought: (itemId, key, bought) => rpc("giftable_mark_bought", { p_item_id: itemId, p_key: key, p_bought: bought }),
-  };
-
-  const demo = {
-    db() {
-      let d = store.get("giftable.demo", null);
-      if (!d) {
-        d = {
-          people: DEMO_KIDS.map((name, i) => ({
-            id: "p" + i, slug: name.toLowerCase(), name, colors: "", sizes: {}, sort: i, token: name.toLowerCase() + "-demo",
-          })),
-          items: [],
-          claims: [],
-        };
-        store.set("giftable.demo", d);
-      }
-      return d;
-    },
-    save(d) { store.set("giftable.demo", d); },
-    person(d, token) {
-      const p = d.people.find((x) => x.token === token);
-      if (!p) throw new Error("Invalid edit link");
-      return p;
-    },
-    async getAll() {
-      const d = this.db();
-      return {
-        people: d.people.map(({ token, ...p }) => p),
-        items: d.items,
-        claims: d.claims.map(({ item_id, claimed_by, claimed_at, bought }) => ({ item_id, claimed_by, claimed_at, bought: !!bought })),
-      };
-    },
-    async checkToken(slug, token) {
-      return this.db().people.some((p) => p.slug === slug && p.token === token);
-    },
-    async saveItem(token, item) {
-      const d = this.db();
-      const p = this.person(d, token);
-      if (!String(item.name || "").trim()) throw new Error("Item needs a name");
-      if (item.id) {
-        const existing = d.items.find((i) => i.id === item.id && i.person_id === p.id);
-        if (!existing) throw new Error("Item not found");
-        Object.assign(existing, item, { person_id: p.id, updated_at: new Date().toISOString() });
-      } else {
-        d.items.push({ ...item, id: uid(), person_id: p.id, created_at: new Date().toISOString() });
-      }
-      this.save(d);
-    },
-    async deleteItem(token, id) {
-      const d = this.db();
-      const p = this.person(d, token);
-      const it = d.items.find((i) => i.id === id && i.person_id === p.id);
-      if (it && d.claims.some((c) => c.item_id === id)) it.removed_at = new Date().toISOString();
-      else d.items = d.items.filter((i) => i !== it);
-      this.save(d);
-    },
-    async saveProfile(token, colors, sizes) {
-      const d = this.db();
-      const p = this.person(d, token);
-      p.colors = colors;
-      p.sizes = sizes;
-      this.save(d);
-    },
-    async claim(itemId, name) {
-      const d = this.db();
-      if (!d.items.some((i) => i.id === itemId && !i.removed_at)) throw new Error("This gift was removed from the list");
-      if (d.claims.some((c) => c.item_id === itemId)) throw new Error("Someone already claimed this gift");
-      const key = uid();
-      d.claims.push({ item_id: itemId, claimed_by: name, claim_key: key, claimed_at: new Date().toISOString(), bought: false });
-      this.save(d);
-      return key;
-    },
-    async unclaim(itemId, key) {
-      const d = this.db();
-      const before = d.claims.length;
-      d.claims = d.claims.filter((c) => !(c.item_id === itemId && c.claim_key === key));
-      if (d.claims.length < before) d.items = d.items.filter((i) => !(i.id === itemId && i.removed_at));
-      this.save(d);
-      return d.claims.length < before;
-    },
-    async markBought(itemId, key, bought) {
-      const d = this.db();
-      const c = d.claims.find((x) => x.item_id === itemId && x.claim_key === key);
-      if (c) c.bought = !!bought;
-      this.save(d);
-      return !!c;
-    },
-    async login(slug, pin) {
-      const p = this.db().people.find((x) => x.slug === slug);
-      if (!p || (p.pin || p.slug) !== normPassword(pin)) return { ok: false, error: "Wrong password. Try again. (Demo password is the name)" };
-      return { ok: true, token: p.token };
-    },
-    async setPin(token, pin) {
-      pin = normPassword(pin);
-      if (pin.length < 4) throw new Error("Password needs at least 4 characters");
-      const d = this.db();
-      this.person(d, token).pin = pin;
-      this.save(d);
+    setTopPick: (token, id, on) => rpc("giftable_set_top_pick", { p_token: token, p_id: id, p_on: on }),
+    shopperStart: (name) => rpc("giftable_shopper_start", { p_name: name }),
+    shopperGet: (code) => rpc("giftable_shopper_get", { p_code: code }),
+    claimAs: (itemId, code) => rpc("giftable_claim_as", { p_item_id: itemId, p_code: code }),
+    unclaimAs: (itemId, code) => rpc("giftable_unclaim_as", { p_item_id: itemId, p_code: code }),
+    markBoughtAs: (itemId, code, bought) => rpc("giftable_mark_bought_as", { p_item_id: itemId, p_code: code, p_bought: bought }),
+    adminLogin: (pw) => rpc("giftable_admin_login", { p_pw: normPassword(pw) }),
+    adminOk: (token) => rpc("giftable_admin_ok", { p_token: token }),
+    adminSetPassword: (token, slug, pw) => rpc("giftable_admin_set_password", { p_token: token, p_slug: slug, p_pw: normPassword(pw) }),
+    adminAddPerson: (token, name, pw) => rpc("giftable_admin_add_person", { p_token: token, p_name: name, p_pw: normPassword(pw) }),
+    adminChangePassword: (token, pw) => rpc("giftable_admin_change_password", { p_token: token, p_new: normPassword(pw) }),
+    async preview(url) {
+      const res = await fetch(`${cfg.supabaseUrl.replace(/\/+$/, "")}/functions/v1/giftable-preview?url=${encodeURIComponent(url)}`);
+      return res.json();
     },
   };
 
-  const api = DEMO ? demo : remote;
+  const api = remote;
 
   // ---------------------------------------------------------------------------
   // State
@@ -344,7 +260,7 @@
       state.people = data.people || [];
       state.items = data.items || [];
       state.claims = Object.fromEntries((data.claims || []).map((c) => [c.item_id, c.claimed_by]));
-      state.claimInfo = Object.fromEntries((data.claims || []).map((c) => [c.item_id, { by: c.claimed_by, at: c.claimed_at, bought: !!c.bought }]));
+      state.claimInfo = Object.fromEntries((data.claims || []).map((c) => [c.item_id, { by: c.claimed_by, at: c.claimed_at, bought: !!c.bought, shopperId: c.shopper_id }]));
       state.loaded = true;
       state.error = null;
     } catch (e) {
@@ -380,23 +296,45 @@
     return (d.getMonth() === 11 && d.getDate() >= 25) || d.getMonth() === 0;
   };
 
-  // Gifts this device claimed (claims are remembered per phone/computer).
+  // The shopper using this device: { code, id, name }. Their code brings the
+  // same shopping list to any phone or computer.
+  const shopper = () => store.get("giftable.shopper", null);
+  const isMyClaim = (itemId) => {
+    const info = state.claimInfo[itemId];
+    if (!info) return false;
+    const sh = shopper();
+    return Boolean((sh && info.shopperId && info.shopperId === sh.id) || claimKeys()[itemId]);
+  };
   function myClaims() {
+    // Forget old per-device claim keys for gifts that are gone.
     const keys = claimKeys();
     let stale = false;
-    const list = [];
     for (const id of Object.keys(keys)) {
-      const item = state.items.find((i) => i.id === id);
-      if (!item || !state.claimInfo[id]) {
+      if (!state.claimInfo[id]) {
         delete keys[id];
         stale = true;
-        continue;
       }
-      list.push(item);
     }
     if (stale && state.loaded) store.set("giftable.claims", keys);
-    return list;
+    return state.items.filter((i) => isMyClaim(i.id));
   }
+
+  // "New since your last visit": a visit ends after 30 minutes away.
+  const visit = (() => {
+    const now = Date.now();
+    let v = store.get("giftable.visit", null);
+    if (!v || now - v.last > 30 * 60 * 1000) v = { prev: v ? v.last : null, last: now };
+    else v.last = now;
+    store.set("giftable.visit", v);
+    return v;
+  })();
+  const touchVisit = () => {
+    visit.last = Date.now();
+    store.set("giftable.visit", visit);
+  };
+  const isNewItem = (i) => Boolean(visit.prev && Date.parse(i.created_at) > visit.prev);
+  const isNewSale = (i) => Boolean(visit.prev && i.sale_price && i.updated_at && Date.parse(i.updated_at) > visit.prev && !isNewItem(i));
+  const topFirst = (items) => [...items.filter((i) => i.top_pick), ...items.filter((i) => !i.top_pick)];
   const changedSinceClaim = (item) => {
     const info = state.claimInfo[item.id];
     if (!info || !item.updated_at || !info.at) return false;
@@ -418,6 +356,7 @@
     const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
     if (!parts.length) return { view: "home" };
     if (parts[0] === "mine") return { view: "mine" };
+    if (parts[0] === "parent") return { view: "parent" };
     if (parts[1] === "edit") return { view: "edit", slug: parts[0], token: parts[2] || tokens()[parts[0]] || "" };
     return { view: "list", slug: parts[0] };
   }
@@ -426,6 +365,7 @@
   async function render() {
     await renderPage();
     letItSnow();
+    touchVisit();
   }
   async function renderPage() {
     const my = ++rendering;
@@ -442,6 +382,7 @@
     const r = route();
     if (r.view === "home") return renderHome();
     if (r.view === "mine") return renderMine();
+    if (r.view === "parent") return renderParent(my);
     const p = personBySlug(r.slug);
     if (!p) {
       app.innerHTML = `<div class="wrap">${topbar(true)}<div class="empty">We couldn't find that list.</div></div>`;
@@ -458,7 +399,7 @@
     </header>`;
   }
   const demoBanner = () =>
-    DEMO ? `<div class="banner"><strong>Demo mode.</strong> Changes are saved only on this device until the database is connected.</div>` : "";
+    DEMO ? `<div class="banner"><strong>Not connected.</strong> Add the Supabase address and key to config.js.</div>` : "";
 
   // ---------------------------------------------------------------------------
   // Family page
@@ -469,11 +410,14 @@
       .map((p) => {
         const items = itemsFor(p);
         let meta = items.length ? `${items.length} gift idea${items.length === 1 ? "" : "s"}` : "No ideas yet";
+        let badge = "";
         if (items.length && !isMine(p)) {
           const open = items.filter((i) => !state.claims[i.id]).length;
           meta += ` · ${open} available`;
+          const fresh = items.filter((i) => isNewItem(i) || isNewSale(i)).length;
+          if (fresh) badge = `<span class="new-badge">✨ ${fresh} new</span>`;
         }
-        return `<a class="person" href="#/${esc(p.slug)}" style="--c:${avatarColor(p)}">
+        return `<a class="person" href="#/${esc(p.slug)}" style="--c:${avatarColor(p)}">${badge}
           <div class="avatar" style="--c:${avatarColor(p)}">${esc(p.name[0] || "?")}</div>
           <h2>${esc(p.name)}</h2><div class="meta">${meta}</div></a>`;
       })
@@ -492,7 +436,7 @@
       <div class="share-row" style="margin:0 0 20px">${mine.length
         ? mine.map((p) => `<a class="btn primary" href="#/${esc(p.slug)}/edit">✏️ Edit my list${mine.length > 1 ? ` (${esc(p.name)})` : ""}</a>`).join("")
         : `<button class="btn primary" data-action="login">🔑 Log in to edit your list</button>`}
-        ${myClaims().length ? `<a class="btn berry" href="#/mine">🛍️ My shopping list (${myClaims().length})</a>` : ""}</div>
+        ${myClaims().length || shopper() ? `<a class="btn berry" href="#/mine">🛍️ My shopping list (${myClaims().length})</a>` : ""}</div>
       <div class="people">${cards}</div>
       <div class="share-row">
         <button class="btn" data-action="share-family">Share Giftable with family</button>
@@ -503,10 +447,11 @@
           <li>${esc(listNames())} each tap <strong>Log in</strong> with their name and password to fill in their own list.</li>
           <li>Everyone else opens this page, picks a person, and taps <strong>I'll get this</strong> on a gift.</li>
           <li>Other givers see it's taken. The person whose list it is never sees what's been claimed.</li>
+          <li>Shopping on a different phone or computer? Open <a href="#/mine">My shopping list</a> and enter your <strong>shopper code</strong>.</li>
           <li>Tip: use your browser's <strong>Share → Add to Home Screen</strong> to keep Giftable like an app.</li>
         </ol>
       </section>
-      <footer class="foot">Merry Christmas from our family 🎄</footer>
+      <footer class="foot">Merry Christmas from our family 🎄<br><a class="parent-link" href="#/parent">Parent dashboard</a></footer>
     </div>`;
   }
 
@@ -533,32 +478,35 @@
   function itemCard(item, mode) {
     const cat = CAT[item.category] || { name: "Other" };
     const claimedBy = state.claims[item.id];
-    const myKey = claimKeys()[item.id];
+    const mine = isMyClaim(item.id);
     const pr = PRIORITIES.find(([k]) => k === item.priority) || PRIORITIES[1];
-    const tags = [`<span class="tag p-${pr[0]}">${pr[1]}</span>`];
-    if (item.sale_price) tags.push(saleTag(item));
+    const tags = [];
+    if (mode === "give" && isNewItem(item)) tags.push(`<span class="tag new">✨ New</span>`);
+    tags.push(`<span class="tag p-${pr[0]}">${pr[1]}</span>`);
+    if (item.sale_price) tags.push(mode === "give" && isNewSale(item) ? `<span class="tag on-sale">🏷️ Now on sale</span>` : saleTag(item));
     if (item.size) tags.push(`<span class="tag">Size: ${esc(item.size)}</span>`);
     if (item.color) tags.push(`<span class="tag">Color: ${esc(item.color)}</span>`);
     const href = normalizeLink(item.link);
     const linkBtn = href
-      ? `<a class="btn small" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${cat.charity ? "Donate page" : "View item"} ↗ <span style="font-weight:400;color:var(--muted)">${esc(linkHost(href))}</span></a>`
+      ? `<a class="btn small" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${cat.charity ? "Donate page" : "View item"} ↗ <span class="host">${esc(linkHost(href))}</span></a>`
       : "";
 
     let actions = "";
     let notice = "";
     const fromNote = thankYouTime() && claimedBy ? `<span class="claim-note from-note">🎁 From <strong>${esc(claimedBy)}</strong></span>` : "";
-    if (mode === "give" && claimedBy && myKey && changedSinceClaim(item)) {
+    if (mode === "give" && claimedBy && mine && changedSinceClaim(item)) {
       const who = personById(item.person_id);
       notice = `<div class="warn">⚠️ ${esc(who ? who.name : "They")} changed this after you claimed it. Double-check the details.
         <button class="btn small" data-action="ack-change" data-id="${esc(item.id)}">Got it</button></div>`;
     }
     if (mode === "edit") {
       actions = `${linkBtn}<span class="spacer" style="flex:1"></span>
+        <button class="btn small star${item.top_pick ? " on" : ""}" data-action="toggle-top" data-id="${esc(item.id)}" aria-pressed="${!!item.top_pick}" title="Top pick">${item.top_pick ? "★" : "☆"} Top pick</button>
         <button class="btn small" data-action="edit-item" data-id="${esc(item.id)}">Edit</button>
         <button class="btn small ghost" data-action="delete-item" data-id="${esc(item.id)}">Delete</button>${fromNote ? `<div style="flex-basis:100%">${fromNote}</div>` : ""}`;
     } else if (mode === "own") {
       actions = linkBtn + fromNote;
-    } else if (claimedBy && myKey) {
+    } else if (claimedBy && mine) {
       const bought = state.claimInfo[item.id]?.bought;
       actions = `${linkBtn}<span class="claim-note">✅ <strong>${bought ? "You bought this" : "You're getting this"}</strong></span>
         <button class="btn small ghost" data-action="unclaim" data-id="${esc(item.id)}">Undo</button>`;
@@ -569,13 +517,31 @@
     }
 
     const showClaimed = mode === "give" && claimedBy;
-    return `<article class="item${showClaimed ? " claimed" : ""}">
-      <div class="item-top"><h3>${esc(item.name)}</h3>${priceHtml(item)}</div>
-      <div class="tags">${tags.join("")}</div>
-      ${item.notes ? `<p class="notes">${esc(item.notes)}</p>` : ""}
-      ${notice}
-      <div class="item-actions">${actions}</div>
+    return `<article class="item${showClaimed ? " claimed" : ""}${item.image_url ? " has-thumb" : ""}">
+      ${thumbHtml(item, href)}
+      <div class="item-body">
+        <div class="item-top"><h3>${item.top_pick && mode === "edit" ? "⭐ " : ""}${esc(item.name)}</h3>${priceHtml(item)}</div>
+        <div class="tags">${tags.join("")}</div>
+        ${item.notes ? `<p class="notes">${esc(item.notes)}</p>` : ""}
+        ${notice}
+        <div class="item-actions">${actions}</div>
+      </div>
     </article>`;
+  }
+
+  function thumbHtml(item, href) {
+    if (!item.image_url) return "";
+    const img = `<img class="thumb" src="${esc(item.image_url)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.closest('.thumb-wrap').remove()">`;
+    return href
+      ? `<a class="thumb-wrap" href="${esc(href)}" target="_blank" rel="noopener noreferrer" aria-label="View item">${img}</a>`
+      : `<div class="thumb-wrap">${img}</div>`;
+  }
+
+  function topPicksSection(items, mode) {
+    const top = items.filter((i) => i.top_pick);
+    if (!top.length) return "";
+    return `<section class="category top-picks"><h2>⭐ Top picks <span class="count">${top.length}</span></h2>
+      ${top.map((i) => itemCard(i, mode)).join("")}</section>`;
   }
 
   function categorySections(items, mode) {
@@ -596,7 +562,7 @@
     const all = itemsFor(p);
     const hideClaimed = !own && store.get("giftable.hideClaimed", false);
     const maxPrice = own ? 0 : Number(store.get("giftable.maxPrice", 0)) || 0;
-    let items = hideClaimed ? all.filter((i) => !state.claims[i.id] || claimKeys()[i.id]) : all;
+    let items = hideClaimed ? all.filter((i) => !state.claims[i.id] || isMyClaim(i.id)) : all;
     if (maxPrice) items = items.filter((i) => { const v = priceValue(currentPrice(i)); return v == null || v <= maxPrice; });
     const mineCount = own ? 0 : myClaims().length;
     const open = all.filter((i) => !state.claims[i.id]).length;
@@ -624,7 +590,7 @@
         <button class="btn small" data-action="share-person" data-slug="${esc(p.slug)}">Share ${esc(p.name)}'s list</button>
       </div>
       ${thankYouTime() && own ? `<div class="banner">🎄 Merry Christmas! You can now see who gave you each gift, for your thank-you notes.</div>` : ""}
-      ${all.length ? categorySections(items, own ? "own" : "give") || `<div class="empty">${maxPrice ? `Nothing left under ${money(maxPrice)}. Try a higher price.` : "Every gift has been claimed. 🎉"}</div>`
+      ${all.length ? (topPicksSection(items, own ? "own" : "give") + categorySections(items.filter((i) => !i.top_pick), own ? "own" : "give")) || `<div class="empty">${maxPrice ? `Nothing left under ${money(maxPrice)}. Try a higher price.` : "Every gift has been claimed. 🎉"}</div>`
         : `<div class="empty">${esc(p.name)} hasn't added anything yet. Check back soon!</div>`}
     </div>`;
   }
@@ -634,7 +600,7 @@
   // ---------------------------------------------------------------------------
   function renderMine() {
     const mine = myClaims();
-    const keys = claimKeys();
+    const sh = shopper();
     const active = mine.filter((i) => !i.removed_at);
     const boughtCount = active.filter((i) => state.claimInfo[i.id]?.bought).length;
     const priced = active.map((i) => priceValue(currentPrice(i))).filter((v) => v != null);
@@ -660,15 +626,18 @@
         warn = `<div class="warn">⚠️ ${esc(p.name)} changed this after you claimed it. Double-check the details.
           <button class="btn small" data-action="ack-change" data-id="${esc(item.id)}">Got it</button></div>`;
       }
-      return `<article class="item${info.bought ? " bought" : ""}${item.removed_at ? " removed" : ""}">
-        <div class="item-top"><h3>${esc(item.name)}</h3>${priceHtml(item)}</div>
-        <div class="tags">${tags.join("")}</div>
-        ${item.notes ? `<p class="notes">${esc(item.notes)}</p>` : ""}
-        ${warn}
-        <div class="item-actions">
-          ${href ? `<a class="btn small" href="${esc(href)}" target="_blank" rel="noopener noreferrer">View item ↗</a>` : ""}
-          ${item.removed_at ? "" : `<button class="btn small ${info.bought ? "primary" : ""}" data-action="toggle-bought" data-id="${esc(item.id)}" aria-pressed="${!!info.bought}">${info.bought ? "✓ Bought" : "Mark as bought"}</button>`}
-          ${keys[item.id] ? `<button class="btn small ghost" data-action="unclaim" data-id="${esc(item.id)}">Undo</button>` : ""}
+      return `<article class="item${info.bought ? " bought" : ""}${item.removed_at ? " removed" : ""}${item.image_url ? " has-thumb" : ""}">
+        ${thumbHtml(item, href)}
+        <div class="item-body">
+          <div class="item-top"><h3>${esc(item.name)}</h3>${priceHtml(item)}</div>
+          <div class="tags">${tags.join("")}</div>
+          ${item.notes ? `<p class="notes">${esc(item.notes)}</p>` : ""}
+          ${warn}
+          <div class="item-actions">
+            ${href ? `<a class="btn small" href="${esc(href)}" target="_blank" rel="noopener noreferrer">View item ↗</a>` : ""}
+            ${item.removed_at ? "" : `<button class="btn small ${info.bought ? "primary" : ""}" data-action="toggle-bought" data-id="${esc(item.id)}" aria-pressed="${!!info.bought}">${info.bought ? "✓ Bought" : "Mark as bought"}</button>`}
+            <button class="btn small ghost" data-action="unclaim" data-id="${esc(item.id)}">Undo</button>
+          </div>
         </div>
       </article>`;
     };
@@ -681,6 +650,15 @@
         <div><h1>My shopping list</h1>
         <div class="sub">${mine.length ? `${boughtCount} of ${active.length} bought · ${countdownText()}` : countdownText()}</div></div>
       </div>
+      ${sh ? `<div class="code-card">
+          <div><div class="label">Your shopper code</div><div class="code">${esc(sh.code)}</div>
+          <div class="sub">Shopping as <strong>${esc(sh.name)}</strong>. Enter this code on another phone or computer to see this list there.</div></div>
+          <div class="code-actions"><button class="btn small" data-action="copy-code">Copy code</button>
+          <button class="btn small ghost" data-action="switch-shopper">Not ${esc(sh.name)}?</button></div>
+        </div>`
+        : `<div class="code-card"><div><div class="label">Shopping on another device too?</div>
+          <div class="sub">If you claimed gifts somewhere else, enter the shopper code you got there.</div></div>
+          <div class="code-actions"><button class="btn small primary" data-action="enter-code">Use my shopper code</button></div></div>`}
       ${mine.length ? `<div class="total-row">
           <div><div class="label">Total so far</div><div class="total">${money(total)}</div></div>
           <div class="sub">${unpriced ? `+ ${unpriced} gift${unpriced === 1 ? "" : "s"} without a price` : "All gifts have a price"}</div>
@@ -688,8 +666,154 @@
         ${groups.map((g) => `<section class="category"><h2>For ${esc(g.p.name)} <span class="count">${g.items.length}</span></h2>
           ${g.items.map((i) => card(i, g.p)).join("")}</section>`).join("")}`
         : `<div class="empty">You haven't claimed any gifts yet.<br>Pick a person on the <a href="#/">family page</a> and tap <strong>I'll get this</strong>.</div>`}
-      <p class="foot">Your claims are remembered on this phone or computer.</p>
+      <p class="foot">${sh ? "Keep your shopper code somewhere safe, like a note on your phone." : "Your first claim gives you a shopper code to use on other devices."}</p>
     </div>`;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Parent dashboard (behind the parent password)
+  // ---------------------------------------------------------------------------
+  let adminVerified = "";
+  async function renderParent(my) {
+    const token = store.get("giftable.admin", "");
+    if (token && adminVerified !== token) {
+      let ok = false;
+      try {
+        ok = await api.adminOk(token);
+      } catch {
+        ok = false;
+      }
+      if (my !== rendering) return;
+      if (ok) adminVerified = token;
+      else store.set("giftable.admin", "");
+    }
+    if (!store.get("giftable.admin", "")) {
+      app.innerHTML = `<div class="wrap">${topbar(true)}
+        <div class="list-head festive">${lights(14)}<div class="snowfall" aria-hidden="true"></div>
+          <div class="avatar" style="--c:#a8841a">🔐</div>
+          <div><h1>Parent dashboard</h1><div class="sub">For parents only. Kids, no peeking! 🎅</div></div>
+        </div>
+        <form class="panel" data-form="parent-login">
+          <div class="field"><label for="p-pw">Parent password</label>
+            <input id="p-pw" name="pw" type="password" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="60" required></div>
+          <button class="btn primary" type="submit">Open dashboard</button>
+        </form></div>`;
+      return;
+    }
+
+    const rows = state.people.map((p) => {
+      const items = itemsFor(p);
+      const claimed = items.filter((i) => state.claims[i.id]);
+      const bought = claimed.filter((i) => state.claimInfo[i.id]?.bought);
+      const spent = claimed.reduce((a, i) => a + (priceValue(currentPrice(i)) || 0), 0);
+      const open = items.filter((i) => !state.claims[i.id]);
+      const openValue = open.reduce((a, i) => a + (priceValue(currentPrice(i)) || 0), 0);
+      return { p, items, claimed, bought, spent, open, openValue };
+    });
+    const maxSpent = Math.max(1, ...rows.map((r) => r.spent));
+    const totals = rows.reduce((t, r) => ({ items: t.items + r.items.length, claimed: t.claimed + r.claimed.length, bought: t.bought + r.bought.length, spent: t.spent + r.spent }), { items: 0, claimed: 0, bought: 0, spent: 0 });
+
+    const shoppers = {};
+    for (const it of state.items) {
+      const info = state.claimInfo[it.id];
+      if (!info || it.removed_at) continue;
+      const s = (shoppers[info.by] ||= { name: info.by, count: 0, spent: 0, kids: new Set() });
+      s.count++;
+      s.spent += priceValue(currentPrice(it)) || 0;
+      const kid = personById(it.person_id);
+      if (kid) s.kids.add(kid.name);
+    }
+    const shopperRows = Object.values(shoppers).sort((a, b) => b.spent - a.spent);
+    const opts = state.people.map((p) => `<option value="${esc(p.slug)}">${esc(p.name)}</option>`).join("");
+
+    app.innerHTML = `<div class="wrap">${topbar(true)}
+      <div class="list-head festive">${lights(14)}<div class="snowfall" aria-hidden="true"></div>
+        <div class="avatar" style="--c:#a8841a">📊</div>
+        <div><h1>Parent dashboard</h1><div class="sub">${countdownText()}</div></div>
+      </div>
+      <div class="stat-row">
+        <div class="stat"><div class="num">${totals.items}</div><div class="label">Gift ideas</div></div>
+        <div class="stat"><div class="num">${totals.claimed}</div><div class="label">Claimed</div></div>
+        <div class="stat"><div class="num">${totals.bought}</div><div class="label">Bought</div></div>
+        <div class="stat"><div class="num">${money(totals.spent)}</div><div class="label">Being spent</div></div>
+      </div>
+
+      <section class="category"><h2>How each kid is doing</h2>
+        ${rows.map((r) => `<div class="kid-row" style="--c:${avatarColor(r.p)}">
+          <div class="kid-name"><span class="dot"></span><strong>${esc(r.p.name)}</strong>
+            <span class="sub">${r.claimed.length} of ${r.items.length} claimed · ${r.bought.length} bought</span></div>
+          <div class="bar" role="img" aria-label="${esc(r.p.name)}: ${money(r.spent)} being spent"><span style="width:${Math.round((r.spent / maxSpent) * 100)}%"></span></div>
+          <div class="kid-money"><strong>${money(r.spent)}</strong> being spent · ${r.open.length} still open${r.openValue ? ` (${money(r.openValue)})` : ""}</div>
+        </div>`).join("")}
+        <p class="hint-line">Spending uses each gift's price (or sale price). Gifts without a price count as $0.</p>
+      </section>
+
+      <section class="category"><h2>Who's shopping</h2>
+        ${shopperRows.length ? shopperRows.map((x) => `<div class="kid-row">
+          <div class="kid-name"><strong>${esc(x.name)}</strong><span class="sub">${x.count} gift${x.count === 1 ? "" : "s"} for ${esc([...x.kids].join(", "))}</span></div>
+          <div class="kid-money"><strong>${money(x.spent)}</strong></div></div>`).join("")
+          : `<div class="empty">Nobody has claimed a gift yet.</div>`}
+      </section>
+
+      <section class="category"><h2>Manage</h2>
+        <form class="panel" data-form="reset-pw">
+          <h3>Reset a password</h3>
+          <div class="row">
+            <div class="field"><label for="r-who">Person</label><select id="r-who" name="slug">${opts}</select></div>
+            <div class="field"><label for="r-pw">New password</label><input id="r-pw" name="pw" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="60" required></div>
+          </div>
+          <button class="btn primary" type="submit">Set password</button>
+        </form>
+        <form class="panel" data-form="add-person">
+          <h3>Add a person</h3>
+          <p class="hint-line">A spouse, partner or grandkid. They log in with their name and this password.</p>
+          <div class="row">
+            <div class="field"><label for="a-name">Name</label><input id="a-name" name="name" maxlength="40" required></div>
+            <div class="field"><label for="a-pw">Starting password</label><input id="a-pw" name="pw" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="60" required></div>
+          </div>
+          <button class="btn primary" type="submit">Add person</button>
+        </form>
+        <div class="panel">
+          <h3>Backup</h3>
+          <p class="hint-line">Download every list (with who's buying what) as a spreadsheet.</p>
+          <button class="btn" data-action="backup">⬇️ Download spreadsheet</button>
+        </div>
+        <form class="panel" data-form="parent-pw">
+          <h3>Change the parent password</h3>
+          <div class="field"><label for="c-pw">New parent password</label><input id="c-pw" name="pw" type="password" autocomplete="new-password" maxlength="60" required></div>
+          <button class="btn" type="submit">Change password</button>
+        </form>
+        <button class="btn ghost" data-action="parent-logout">Log out of the parent dashboard</button>
+      </section>
+    </div>`;
+  }
+
+  function downloadBackup() {
+    const head = ["Person", "Category", "Gift", "Link", "Price", "Sale price", "Priority", "Top pick", "Size", "Color", "Notes", "Claimed by", "Bought", "Added"];
+    const cell = (v) => {
+      const t = String(v ?? "");
+      return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+    };
+    const lines = [head.map(cell).join(",")];
+    for (const p of state.people) {
+      for (const i of itemsFor(p)) {
+        const info = state.claimInfo[i.id];
+        const pr = PRIORITIES.find(([k]) => k === i.priority);
+        lines.push([p.name, CAT[i.category]?.name || i.category, i.name, i.link, i.price, i.sale_price, pr ? pr[1] : i.priority,
+          i.top_pick ? "Yes" : "", i.size, i.color, i.notes, info?.by || "", info?.bought ? "Yes" : "", (i.created_at || "").slice(0, 10)].map(cell).join(","));
+      }
+    }
+    const blob = new Blob(["\ufeff" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `giftable-backup-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      URL.revokeObjectURL(a.href);
+      a.remove();
+    }, 1000);
+    toast("Spreadsheet downloaded");
   }
 
   // ---------------------------------------------------------------------------
@@ -754,7 +878,7 @@
       </section>
       <div class="label" style="font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;margin:4px 0 8px">Add to a category</div>
       <div class="chips">${CATEGORIES.map((c) => `<button class="btn small" data-action="add-item" data-cat="${c.id}">${c.emoji} ${esc(c.name)}</button>`).join("")}</div>
-      ${items.length ? categorySections(items, "edit") : `<div class="empty" style="margin-top:20px">Your list is empty. Tap a category above or <strong>Add a gift</strong> to start.</div>`}
+      ${items.length ? `<p class="hint-line">⭐ Tap <strong>☆ Top pick</strong> on up to 3 gifts you want most. They show first for givers.</p>` + categorySections(items, "edit") : `<div class="empty" style="margin-top:20px">Your list is empty. Tap a category above or <strong>Add a gift</strong> to start.</div>`}
     </div>
     <button class="btn primary fab" data-action="add-item">＋ Add a gift</button>`;
   }
@@ -781,7 +905,7 @@
     form.addEventListener("click", (e) => {
       if (e.target.closest("[data-close]")) dialog.close();
     });
-    dialog.showModal();
+    if (!dialog.open) dialog.showModal();
     const first = $("[autofocus]", form) || $("input, select, textarea", form);
     if (first && !matchMedia("(pointer: coarse)").matches) first.focus();
     return form;
@@ -800,7 +924,16 @@
         <span class="hint" id="f-cat-hint"></span></div>
       <div class="field"><label for="f-name">What is it?</label><input id="f-name" name="name" required maxlength="200" value="${esc(item.name || "")}" autofocus></div>
       <div class="field"><label for="f-link">Link <span class="hint">(optional)</span></label>
-        <input id="f-link" name="link" type="url" inputmode="url" placeholder="Paste a link to the store page" value="${esc(item.link || "")}"></div>
+        <div class="link-row">
+          <input id="f-link" name="link" type="url" inputmode="url" placeholder="Paste a link to the store page" value="${esc(item.link || "")}">
+          <button type="button" class="btn small" id="f-fill">✨ Fill in</button>
+        </div>
+        <span class="hint" id="f-fill-status">Paste a store link and we'll try to fill in the name, photo and price.</span></div>
+      <input type="hidden" name="image_url" id="f-image" value="${esc(item.image_url || "")}">
+      <div class="photo-preview" id="f-photo" ${item.image_url ? "" : "hidden"}>
+        <img id="f-photo-img" src="${esc(item.image_url || "")}" alt="" referrerpolicy="no-referrer">
+        <button type="button" class="btn small ghost" id="f-photo-remove">Remove photo</button>
+      </div>
       <div class="field"><label for="f-price"><span id="f-price-label">Regular price</span> <span class="hint">(optional)</span></label>
         <input id="f-price" name="price" maxlength="40" placeholder="$25 or $20–40" value="${esc(item.price || "")}"></div>
       <div class="sale-box" id="f-sale-box">
@@ -853,6 +986,7 @@
           size: cat.sized ? String(fd.get("size") || "").trim() : "",
           color: cat.sized ? String(fd.get("color") || "").trim() : "",
           notes: String(fd.get("notes") || "").trim(),
+          image_url: String(fd.get("image_url") || ""),
         };
         if (editing) payload.id = item.id;
         await api.saveItem(token, payload);
@@ -881,6 +1015,50 @@
       if ($("#f-onsale", form).checked) $("#f-sale", form).focus();
     });
     sync();
+
+    // Photo + auto-fill from a store link.
+    const setPhoto = (url) => {
+      $("#f-image", form).value = url || "";
+      $("#f-photo-img", form).src = url || "";
+      $("#f-photo", form).hidden = !url;
+    };
+    $("#f-photo-img", form).addEventListener("error", () => setPhoto(""));
+    $("#f-photo-remove", form).addEventListener("click", () => setPhoto(""));
+    let lastFilled = item.link || "";
+    const fill = async (manual) => {
+      const status = $("#f-fill-status", form);
+      const link = normalizeLink($("#f-link", form).value);
+      if (!link) {
+        if (manual) status.textContent = "Paste a store link first.";
+        return;
+      }
+      if (!manual && link === lastFilled) return;
+      lastFilled = link;
+      status.textContent = "✨ Looking up that link…";
+      $("#f-fill", form).disabled = true;
+      try {
+        const d = await api.preview(link);
+        // Stores that block us return a generic page with no photo or price.
+        if (!d || d.error || (!d.image && !d.price)) {
+          status.textContent = `${linkHost(link)} didn't share its details, so please type them in.`;
+          return;
+        }
+        const nameEl = $("#f-name", form);
+        if (d.title && (!nameEl.value.trim() || manual)) nameEl.value = d.title;
+        const priceEl = $("#f-price", form);
+        // Stores sometimes show our server a foreign currency; only use dollar prices.
+        if (d.price && d.price.startsWith("$") && (!priceEl.value.trim() || manual)) priceEl.value = d.price;
+        if (d.image) setPhoto(d.image);
+        status.textContent = `✨ Filled in from ${linkHost(link)}. Check the details look right.`;
+      } catch {
+        status.textContent = "Couldn't look that up right now. You can type the details in.";
+      } finally {
+        $("#f-fill", form).disabled = false;
+      }
+    };
+    $("#f-fill", form).addEventListener("click", () => fill(true));
+    $("#f-link", form).addEventListener("change", () => fill(false));
+    $("#f-link", form).addEventListener("paste", () => setTimeout(() => fill(false), 50));
   }
 
   function profileForm(p, token) {
@@ -909,6 +1087,103 @@
         toast("Saved");
       }
     );
+  }
+
+  // Ask who's shopping. Resolves to the shopper ({code,id,name,isNew}) or null.
+  function shopperDialog() {
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (v) => {
+        done = true;
+        resolve(v);
+      };
+      const askForName = () =>
+        openDialog(
+          `<h2>Who's shopping?</h2>
+          <div class="field"><label for="f-giver">Your name</label>
+            <input id="f-giver" name="giver" maxlength="60" placeholder="e.g. Grandma Sue" autocomplete="name" value="${esc(store.get("giftable.giver", ""))}" autofocus>
+            <span class="hint">Other shoppers will see you claimed it, so nobody doubles up. The person whose list it is won't see it.</span></div>
+          <p class="hint-line" style="margin:0 0 14px">Already have a shopper code? <button type="button" class="linklike" data-have-code>Use my code</button></p>
+          <div class="dialog-actions">
+            <button type="button" class="btn ghost" data-close>Cancel</button>
+            <button type="submit" class="btn berry">Continue</button>
+          </div>`,
+          async (f) => {
+            const name = String(new FormData(f).get("giver") || "").trim();
+            if (!name) {
+              toast("Please enter your name");
+              return false;
+            }
+            const sh = await api.shopperStart(name);
+            store.set("giftable.shopper", { code: sh.code, id: sh.id, name: sh.name });
+            store.set("giftable.giver", sh.name);
+            finish({ ...sh, isNew: true });
+          }
+        );
+      askForName();
+      $("[data-have-code]", dialog).addEventListener("click", () => {
+        codeDialog().then((sh) => finish(sh ? { ...sh, isNew: false } : null));
+      });
+      dialog.addEventListener("close", () => setTimeout(() => !done && !dialog.open && finish(null), 0), { once: true });
+    });
+  }
+
+  function codeDialog() {
+    return new Promise((resolve) => {
+      let done = false;
+      openDialog(
+        `<h2>Use your shopper code</h2>
+        <div class="field"><label for="f-code">Shopper code</label>
+          <input id="f-code" name="code" maxlength="20" placeholder="e.g. SUE-7K4PX" autocapitalize="characters" autocorrect="off" spellcheck="false" autofocus>
+          <span class="hint">You got this code the first time you claimed a gift. It's also on My shopping list on that device.</span></div>
+        <div class="dialog-actions">
+          <button type="button" class="btn ghost" data-close>Cancel</button>
+          <button type="submit" class="btn primary">Continue</button>
+        </div>`,
+        async (f) => {
+          const code = String(new FormData(f).get("code") || "").trim();
+          if (!code) {
+            toast("Enter your shopper code");
+            return false;
+          }
+          const sh = await api.shopperGet(code);
+          if (!sh) {
+            toast("We couldn't find that code. Check it and try again.");
+            return false;
+          }
+          store.set("giftable.shopper", { code: sh.code, id: sh.id, name: sh.name });
+          store.set("giftable.giver", sh.name);
+          done = true;
+          resolve(sh);
+          toast(`Welcome back, ${sh.name}!`);
+        }
+      );
+      dialog.addEventListener("close", () => !done && resolve(null), { once: true });
+    });
+  }
+
+  function showCodeDialog(sh) {
+    openDialog(
+      `<h2>Your shopper code</h2>
+      <p>Hang on to this code. Enter it on any other phone or computer to see your shopping list there.</p>
+      <div class="code big">${esc(sh.code)}</div>
+      <p class="hint-line">You can always find it again on <strong>My shopping list</strong>.</p>
+      <div class="dialog-actions">
+        <button type="button" class="btn" data-copy-code>Copy code</button>
+        <button type="submit" class="btn primary">Got it</button>
+      </div>`,
+      async () => {}
+    );
+    $("[data-copy-code]", dialog).addEventListener("click", () => copyText(sh.code));
+  }
+
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast("Copied");
+    } catch {
+      window.prompt("Copy this:", text);
+    }
   }
 
   function askName() {
@@ -1074,13 +1349,44 @@
       store.set("giftable.acks", acks);
       return render();
     }
+    if (action === "toggle-top" && p && item) {
+      el.disabled = true;
+      try {
+        await api.setTopPick(r.token, item.id, !item.top_pick);
+        toast(item.top_pick ? "Removed from top picks" : "⭐ Added to your top picks");
+      } catch (err) {
+        toast(err.message);
+      }
+      await load();
+      return render();
+    }
+    if (action === "copy-code") return copyText(shopper()?.code || "");
+    if (action === "backup") return downloadBackup();
+    if (action === "parent-logout") {
+      store.set("giftable.admin", "");
+      adminVerified = "";
+      toast("Logged out of the parent dashboard");
+      return render();
+    }
+    if (action === "enter-code") {
+      const sh = await codeDialog();
+      if (sh) render();
+      return;
+    }
+    if (action === "switch-shopper") {
+      store.set("giftable.shopper", null);
+      toast("Switched. Enter your own shopper code or claim a gift to start.");
+      return render();
+    }
     if (action === "toggle-bought" && item) {
       const key = claimKeys()[item.id];
-      if (!key) return;
+      const sh = shopper();
+      if (!key && !sh) return;
       el.disabled = true;
       const nowBought = !state.claimInfo[item.id]?.bought;
       try {
-        await api.markBought(item.id, key, nowBought);
+        if (key) await api.markBought(item.id, key, nowBought);
+        else await api.markBoughtAs(item.id, sh.code, nowBought);
         toast(nowBought ? "Marked as bought 🎁" : "Marked as not bought yet");
       } catch (err) {
         toast(err.message);
@@ -1090,26 +1396,32 @@
     }
 
     if (action === "claim" && item) {
-      const name = store.get("giftable.giver", "") || (await askName());
-      if (!name) return;
+      let sh = shopper();
+      if (!sh) {
+        sh = await shopperDialog();
+        if (!sh) return;
+      }
       el.disabled = true;
+      let ok = false;
       try {
-        const key = await api.claim(item.id, name);
-        const keys = claimKeys();
-        keys[item.id] = key;
-        store.set("giftable.claims", keys);
+        await api.claimAs(item.id, sh.code);
+        ok = true;
         toast(`Claimed! You're getting “${item.name}”`);
       } catch (err) {
         toast(err.message);
       }
       await load();
-      return render();
+      await render();
+      if (ok && sh.isNew) showCodeDialog(sh);
+      return;
     }
     if (action === "unclaim" && item) {
       const keys = claimKeys();
+      const sh = shopper();
       el.disabled = true;
       try {
-        await api.unclaim(item.id, keys[item.id]);
+        if (keys[item.id]) await api.unclaim(item.id, keys[item.id]);
+        else if (sh) await api.unclaimAs(item.id, sh.code);
         delete keys[item.id];
         store.set("giftable.claims", keys);
         toast("Released. Someone else can claim it now.");
@@ -1118,6 +1430,52 @@
       }
       await load();
       return render();
+    }
+  });
+
+  app.addEventListener("submit", async (e) => {
+    const form = e.target.closest("form[data-form]");
+    if (!form) return;
+    e.preventDefault();
+    const fd = new FormData(form);
+    const kind = form.dataset.form;
+    const btn = form.querySelector('button[type="submit"]');
+    if (btn) btn.disabled = true;
+    const token = store.get("giftable.admin", "");
+    try {
+      if (kind === "parent-login") {
+        const res = await api.adminLogin(String(fd.get("pw") || ""));
+        if (!res || !res.ok) {
+          toast((res && res.error) || "Wrong parent password.");
+          form.reset();
+          return;
+        }
+        store.set("giftable.admin", res.token);
+        adminVerified = res.token;
+        return render();
+      }
+      if (kind === "reset-pw") {
+        const slug = String(fd.get("slug"));
+        await api.adminSetPassword(token, slug, String(fd.get("pw") || ""));
+        form.reset();
+        return toast(`Password updated for ${personBySlug(slug)?.name || slug}`);
+      }
+      if (kind === "add-person") {
+        const name = String(fd.get("name") || "").trim();
+        await api.adminAddPerson(token, name, String(fd.get("pw") || ""));
+        await load();
+        await render();
+        return toast(`${name} has been added 🎄`);
+      }
+      if (kind === "parent-pw") {
+        await api.adminChangePassword(token, String(fd.get("pw") || ""));
+        form.reset();
+        return toast("Parent password changed");
+      }
+    } catch (err) {
+      toast(err.message);
+    } finally {
+      if (btn && btn.isConnected) btn.disabled = false;
     }
   });
 
